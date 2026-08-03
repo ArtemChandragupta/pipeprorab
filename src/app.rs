@@ -7,10 +7,10 @@ use egui_snarl::{
 use crate::model::PipeNode;
 
 // Слайдер и поле для значения в виде-графе
-fn ui_val(ui: &mut Ui, lbl: &str, val: &mut f64, speed: f64, suf: &str) {
+fn ui_val(ui: &mut Ui, label: &str, val: &mut f64, suf: &str) {
     ui.horizontal(|ui| {
-        ui.label(lbl);
-        ui.add(egui::DragValue::new(val).speed(speed).suffix(suf));
+        ui.label(label);
+        ui.add(egui::DragValue::new(val).suffix(suf));
     });
 }
 
@@ -33,6 +33,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         }
     }
 
+    // Видимые тела блоков
     fn has_body(&mut self, _: &PipeNode) -> bool {
         true
     }
@@ -50,42 +51,35 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                 diameter,
                 roughness,
             } => {
-                ui_val(ui, "Длина (м):", length, 0.1, "");
-                ui_val(ui, "Диаметр (м):", diameter, 0.01, "");
-                ui_val(ui, "Шероховатость (м):", roughness, 0.0001, "");
+                ui_val(ui, "Длина:", length, " м");
+                ui_val(ui, "Диаметр:", diameter, " м");
+                ui_val(ui, "Шероховатость:", roughness, " м");
             }
             PipeNode::Fitting { diameter, zeta } => {
-                ui_val(ui, "Диаметр (м):", diameter, 0.01, "");
-                ui_val(ui, "Сопротивление (ξ):", zeta, 0.01, "");
+                ui_val(ui, "Диаметр:", diameter, " м");
+                ui_val(ui, "Сопротивление:", zeta, " ξ");
             }
             PipeNode::Pump { points } => {
-                ui.label("Рабочие точки (Q - H):");
+                ui.label("Рабочие точки:");
                 for (i, (q, h)) in points.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
                         ui.label(format!("{}: Q:", i + 1));
-                        ui.add(egui::DragValue::new(q).speed(0.5).suffix(" м³/ч"));
+                        ui.add(egui::DragValue::new(q).suffix(" м³/ч"));
                         ui.label("H:");
-                        ui.add(egui::DragValue::new(h).speed(0.5).suffix(" м"));
+                        ui.add(egui::DragValue::new(h).suffix(" м"));
                     });
                 }
             }
         });
     }
 
-    // Задаем ровно 1 входной пин для каждого блока кроме насоса
+    // 1 входной пин для каждого блока кроме насоса
     fn inputs(&mut self, node: &PipeNode) -> usize {
         match node {
             PipeNode::Pump { .. } => 0,
             PipeNode::Pipe { .. } | PipeNode::Fitting { .. } => 1,
         }
     }
-
-    // Задаем ровно 1 выходной пин для каждого блока
-    fn outputs(&mut self, _node: &PipeNode) -> usize {
-        1
-    }
-
-    // Отрисовка UI и настройка внешнего вида входного контакта
     #[allow(refining_impl_trait)]
     fn show_input(
         &mut self,
@@ -96,7 +90,10 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         PinInfo::square().with_fill(egui::Color32::from_rgb(200, 50, 50))
     }
 
-    // Отрисовка UI и настройка внешнего вида выходного контакта
+    // 1 выходной пин для каждого блока
+    fn outputs(&mut self, _node: &PipeNode) -> usize {
+        1
+    }
     #[allow(refining_impl_trait)]
     fn show_output(
         &mut self,
@@ -107,10 +104,10 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         PinInfo::triangle().with_fill(egui::Color32::from_rgb(50, 200, 50))
     }
 
+    // Действия на элементе - пока только убрать
     fn has_node_menu(&mut self, _: &PipeNode) -> bool {
         true
     }
-
     fn show_node_menu(
         &mut self,
         node: NodeId,
@@ -125,19 +122,19 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         }
     }
 
+    // Действия на поле - добавить элемент каждого типа. Потом добавлю приближение к видимой области
     fn has_graph_menu(&mut self, _: egui::Pos2, _: &mut Snarl<PipeNode>) -> bool {
         true
     }
-
     fn show_graph_menu(&mut self, pos: egui::Pos2, ui: &mut Ui, snarl: &mut Snarl<PipeNode>) {
         ui.label("Добавить элемент");
         if ui.button("Труба").clicked() {
             snarl.insert_node(
                 pos,
                 PipeNode::Pipe {
-                    length: 0.0,
-                    diameter: 0.0,
-                    roughness: 0.0,
+                    length: 1.0,
+                    diameter: 1.0,
+                    roughness: 0.1,
                 },
             );
             ui.close();
@@ -146,8 +143,8 @@ impl SnarlViewer<PipeNode> for PipeViewer {
             snarl.insert_node(
                 pos,
                 PipeNode::Fitting {
-                    diameter: 0.0,
-                    zeta: 0.0,
+                    diameter: 1.0,
+                    zeta: 1.0,
                 },
             );
             ui.close();
@@ -156,7 +153,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
             snarl.insert_node(
                 pos,
                 PipeNode::Pump {
-                    points: [(0.0, 0.0); 3],
+                    points: [(1.0, 1.0), (2.0, 0.5), (3.0, 0.3)],
                 },
             );
             ui.close();
