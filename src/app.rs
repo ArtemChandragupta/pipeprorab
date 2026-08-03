@@ -7,10 +7,10 @@ use egui_snarl::{
 use crate::model::PipeNode;
 
 // Слайдер и поле для значения в виде-графе
-fn ui_val(ui: &mut Ui, label: &str, val: &mut f64, suf: &str) {
+fn ui_val(ui: &mut Ui, label: &str, val: &mut f64) {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.add(egui::DragValue::new(val).suffix(suf));
+        ui.add(egui::DragValue::new(val));
     });
 }
 
@@ -51,22 +51,22 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                 diameter,
                 roughness,
             } => {
-                ui_val(ui, "Длина:", length, " м");
-                ui_val(ui, "Диаметр:", diameter, " м");
-                ui_val(ui, "Шероховатость:", roughness, " м");
+                ui_val(ui, "Длина (м):", length);
+                ui_val(ui, "Диаметр (м):", diameter);
+                ui_val(ui, "Шероховатость (м):", roughness);
             }
             PipeNode::Fitting { diameter, zeta } => {
-                ui_val(ui, "Диаметр:", diameter, " м");
-                ui_val(ui, "Сопротивление:", zeta, " ξ");
+                ui_val(ui, "Диаметр (м):", diameter);
+                ui_val(ui, "Сопротивление (ξ):", zeta);
             }
             PipeNode::Pump { points } => {
                 ui.label("Рабочие точки:");
                 for (i, (q, h)) in points.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
-                        ui.label(format!("{}: Q:", i + 1));
-                        ui.add(egui::DragValue::new(q).suffix(" м³/ч"));
-                        ui.label("H:");
-                        ui.add(egui::DragValue::new(h).suffix(" м"));
+                        ui.label(format!("{}: Q (м³/ч):", i + 1));
+                        ui.add(egui::DragValue::new(q));
+                        ui.label("H (м):");
+                        ui.add(egui::DragValue::new(h));
                     });
                 }
             }
