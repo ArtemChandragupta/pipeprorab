@@ -1,4 +1,4 @@
-use eframe::egui;
+use eframe::egui::{self, Ui};
 use egui_snarl::{
     InPin, NodeId, OutPin, Snarl,
     ui::{PinInfo, SnarlStyle, SnarlViewer},
@@ -6,15 +6,70 @@ use egui_snarl::{
 
 use crate::model::PipeNode;
 
+// Слайдер и поле для значения в виде-графе
+fn ui_val(ui: &mut Ui, lbl: &str, val: &mut f64, speed: f64, suf: &str) {
+    ui.horizontal(|ui| {
+        ui.label(lbl);
+        ui.add(egui::DragValue::new(val).speed(speed).suffix(suf));
+    });
+}
+
 struct PipeViewer;
 
 impl SnarlViewer<PipeNode> for PipeViewer {
+    fn connect(&mut self, from: &OutPin, to: &InPin, snarl: &mut Snarl<PipeNode>) {
+        snarl.connect(from.id, to.id);
+    }
+
+    fn disconnect(&mut self, from: &OutPin, to: &InPin, snarl: &mut Snarl<PipeNode>) {
+        snarl.disconnect(from.id, to.id);
+    }
+
     fn title(&mut self, node: &PipeNode) -> String {
         match node {
             PipeNode::Pump { .. } => "Насос".to_owned(),
             PipeNode::Pipe { .. } => "Труба".to_owned(),
             PipeNode::Fitting { .. } => "Местное сопротивление".to_owned(),
         }
+    }
+
+    fn has_body(&mut self, _: &PipeNode) -> bool {
+        true
+    }
+    fn show_body(
+        &mut self,
+        node: NodeId,
+        _: &[InPin],
+        _: &[OutPin],
+        ui: &mut Ui,
+        snarl: &mut Snarl<PipeNode>,
+    ) {
+        ui.vertical(|ui| match &mut snarl[node] {
+            PipeNode::Pipe {
+                length,
+                diameter,
+                roughness,
+            } => {
+                ui_val(ui, "Длина (м):", length, 0.1, "");
+                ui_val(ui, "Диаметр (м):", diameter, 0.01, "");
+                ui_val(ui, "Шероховатость (м):", roughness, 0.0001, "");
+            }
+            PipeNode::Fitting { diameter, zeta } => {
+                ui_val(ui, "Диаметр (м):", diameter, 0.01, "");
+                ui_val(ui, "Сопротивление (ξ):", zeta, 0.01, "");
+            }
+            PipeNode::Pump { points } => {
+                ui.label("Рабочие точки (Q - H):");
+                for (i, (q, h)) in points.iter_mut().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{}: Q:", i + 1));
+                        ui.add(egui::DragValue::new(q).speed(0.5).suffix(" м³/ч"));
+                        ui.label("H:");
+                        ui.add(egui::DragValue::new(h).speed(0.5).suffix(" м"));
+                    });
+                }
+            }
+        });
     }
 
     // Задаем ровно 1 входной пин для каждого блока кроме насоса
@@ -50,6 +105,62 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         _snarl: &mut Snarl<PipeNode>,
     ) -> PinInfo {
         PinInfo::triangle().with_fill(egui::Color32::from_rgb(50, 200, 50))
+    }
+
+    fn has_node_menu(&mut self, _: &PipeNode) -> bool {
+        true
+    }
+
+    fn show_node_menu(
+        &mut self,
+        node: NodeId,
+        _: &[InPin],
+        _: &[OutPin],
+        ui: &mut Ui,
+        snarl: &mut Snarl<PipeNode>,
+    ) {
+        if ui.button("Убрать элемент").clicked() {
+            snarl.remove_node(node);
+            ui.close();
+        }
+    }
+
+    fn has_graph_menu(&mut self, _: egui::Pos2, _: &mut Snarl<PipeNode>) -> bool {
+        true
+    }
+
+    fn show_graph_menu(&mut self, pos: egui::Pos2, ui: &mut Ui, snarl: &mut Snarl<PipeNode>) {
+        ui.label("Добавить элемент");
+        if ui.button("Труба").clicked() {
+            snarl.insert_node(
+                pos,
+                PipeNode::Pipe {
+                    length: 0.0,
+                    diameter: 0.0,
+                    roughness: 0.0,
+                },
+            );
+            ui.close();
+        }
+        if ui.button("Местное сопротивление").clicked() {
+            snarl.insert_node(
+                pos,
+                PipeNode::Fitting {
+                    diameter: 0.0,
+                    zeta: 0.0,
+                },
+            );
+            ui.close();
+        }
+        if ui.button("Насос").clicked() {
+            snarl.insert_node(
+                pos,
+                PipeNode::Pump {
+                    points: [(0.0, 0.0); 3],
+                },
+            );
+            ui.close();
+        }
     }
 }
 
