@@ -1,5 +1,6 @@
 use egui_snarl::{NodeId, Snarl};
 use std::f64::consts::PI;
+use std::fmt::Write;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     f64,
@@ -29,24 +30,24 @@ pub enum PipeNode {
 // --- СТРУКТУРЫ ДЛЯ РАСЧЕТА ---
 // Гидравлическое состояние элемента
 #[derive(Default, Debug, Clone)]
-pub struct HydraulicState {
-    pub k: f64,
-    pub q: f64,
-    pub p_in: f64,
-    pub p_out: f64,
+struct HydraulicState {
+    k: f64,
+    q: f64,
+    p_in: f64,
+    p_out: f64,
 }
 
 // Имя, тип и состояние элемента
 #[derive(Debug, Clone)]
-pub struct Component {
-    pub name: String,
-    pub kind: ElementKind,
-    pub state: HydraulicState,
+struct Component {
+    name: String,
+    kind: ElementKind,
+    state: HydraulicState,
 }
 
 // Различные типы элементов для расчета, чтобы построить из них вложенный граф для рекурсии. Здесь нет насоса, зато есть параллельность и последовательность - всё для парсинга
 #[derive(Debug, Clone)]
-pub enum ElementKind {
+enum ElementKind {
     Pipe { l: f64, d: f64, r: f64 },
     Fitting { d: f64, zeta: f64 },
     Series(Vec<Component>),
@@ -62,7 +63,7 @@ impl Component {
         }
     }
 
-    pub fn type_name(&self) -> &'static str {
+    fn type_name(&self) -> &'static str {
         match self.kind {
             ElementKind::Pipe { .. } => "pipe",
             ElementKind::Fitting { .. } => "fitting",
@@ -73,7 +74,7 @@ impl Component {
 }
 
 // Насос. Превращает три точки в кривую.
-pub struct Pump {
+struct Pump {
     a: f64,
     b: f64,
     c: f64,
@@ -102,7 +103,7 @@ impl Pump {
 }
 
 // --- ЛОГИКА РАСЧЕТОВ ---
-pub fn get_static_pressure(comp: &Component) -> f64 {
+fn get_static_pressure(comp: &Component) -> f64 {
     match &comp.kind {
         ElementKind::Series(elems) => elems.iter().map(get_static_pressure).sum(),
         ElementKind::Parallel(branches) => branches.first().map_or(0.0, get_static_pressure),
@@ -111,7 +112,7 @@ pub fn get_static_pressure(comp: &Component) -> f64 {
 }
 
 // Расчет эквивалентного сопротивления
-pub fn update_k(comp: &mut Component, q_in: f64) -> f64 {
+fn update_k(comp: &mut Component, q_in: f64) -> f64 {
     let q = q_in.abs().max(1e-9);
 
     let k = match &mut comp.kind {
@@ -160,7 +161,7 @@ pub fn update_k(comp: &mut Component, q_in: f64) -> f64 {
 }
 
 // Финальный расчет падения давления на элементе
-pub fn calc_flow_pressure(comp: &mut Component, q_in: f64, p_in: f64) -> f64 {
+fn calc_flow_pressure(comp: &mut Component, q_in: f64, p_in: f64) -> f64 {
     comp.state.q = q_in;
     comp.state.p_in = p_in;
     let k = comp.state.k;
@@ -203,7 +204,7 @@ pub fn calc_flow_pressure(comp: &mut Component, q_in: f64, p_in: f64) -> f64 {
 }
 
 // Поиск рабочей точки системы
-pub fn solve_operating_point(
+fn solve_operating_point(
     pump: &Pump,
     k_total: f64,
     h_static: f64,
@@ -226,7 +227,7 @@ pub fn solve_operating_point(
 }
 
 // --- КОНВЕРТАЦИЯ ГРАФА В МОДЕЛЬ (Написано Gemini) ---
-pub fn build_model(snarl: &Snarl<PipeNode>) -> Result<([[f64; 2]; 3], Component), &'static str> {
+fn build_model(snarl: &Snarl<PipeNode>) -> Result<([[f64; 2]; 3], Component), &'static str> {
     let (pump_node, pump_points) = snarl
         .node_ids()
         .find_map(|(id, n)| {
@@ -366,4 +367,91 @@ pub fn build_model(snarl: &Snarl<PipeNode>) -> Result<([[f64; 2]; 3], Component)
         pump_points,
         Component::new("Магистраль", ElementKind::Series(initial)),
     ))
+}
+
+// --- ФОРМАТИРОВАНИЕ И ИТОГОВЫЙ РАСЧЕТ ---
+fn format_element_tree(comp: &Component, depth: usize, out: &mut String) {
+    let name_col = format!("{}{}", "  ".repeat(depth), comp.name);
+    let name_str = if name_col.chars().count() > 30 {
+        format!("{}...", name_col.chars().take(27).collect::<String>())
+    } else {
+        name_col
+    };
+    let st = &comp.state;
+
+    let _ = writeln!(
+        out,
+        "| {name_str:<30} | {:<10} | {:>12.2} | {:>10.1} | {:>11.1} | {:>8.1} |",
+        comp.type_name(),
+        st.q * 1000.0,
+        st.p_in / 1000.0,
+        st.p_out / 1000.0,
+        (st.p_in - st.p_out) / 1000.0
+    );
+
+    if let ElementKind::Series(elems) | ElementKind::Parallel(elems) = &comp.kind {
+        for sub in elems {
+            format_element_tree(sub, depth + 1, out);
+        }
+    }
+}
+
+pub fn calculate_pipeline(snarl: &Snarl<PipeNode>) -> String {
+    let mut res = String::new();
+    match build_model(snarl) {
+        Ok((pts, mut pipeline)) => match Pump::from_points(&pts) {
+            Ok(pump) => {
+                let (mut q_op, mut h_op, mut k_total, mut converged) = (0.1, 0.0, 1.0, false);
+                let h_static = get_static_pressure(&pipeline) / (RHO * G_GRAV);
+
+                for _ in 0..100 {
+                    k_total = update_k(&mut pipeline, q_op);
+                    if let Ok((q_new, h_new)) = solve_operating_point(&pump, k_total, h_static) {
+                        if (q_new - q_op).abs() < 1e-6 {
+                            q_op = q_new;
+                            h_op = h_new;
+                            converged = true;
+                            break;
+                        }
+                        q_op = (q_op + q_new) / 2.0;
+                    } else {
+                        break;
+                    }
+                }
+
+                if converged {
+                    let start_p = RHO * G_GRAV * h_op;
+                    calc_flow_pressure(&mut pipeline, q_op, start_p);
+                    let _ = writeln!(
+                        res,
+                        "=== ХАРАКТЕРИСТИКИ СЕТИ ===\nОбщее сопротивление : {k_total:.4e} Па·с²/м⁶\nСтатический напор   : {h_static:.2} м\nРабочая точка       : Q = {:.2} л/с, H = {h_op:.2} м\nДавление на входе   : {:.1} кПа\n\n=== СТРУКТУРА ===\n| {:<30} | {:<10} | {:>12} | {:>10} | {:>11} | {:>8} |\n|{}|{}|{}|{}|{}|{}|",
+                        q_op * 1000.0,
+                        start_p / 1000.0,
+                        "Элемент",
+                        "Тип",
+                        "Расход (л/с)",
+                        "P вх (кПа)",
+                        "P вых (кПа)",
+                        "dP (кПа)",
+                        "-".repeat(32),
+                        "-".repeat(12),
+                        "-".repeat(14),
+                        "-".repeat(12),
+                        "-".repeat(13),
+                        "-".repeat(10)
+                    );
+                    format_element_tree(&pipeline, 0, &mut res);
+                } else {
+                    res.push_str("Ошибка: Расчет не сошелся.\n");
+                }
+            }
+            Err(e) => {
+                let _ = writeln!(res, "Ошибка насоса: {e}");
+            }
+        },
+        Err(e) => {
+            let _ = writeln!(res, "Ошибка модели: {e}");
+        }
+    }
+    res
 }
