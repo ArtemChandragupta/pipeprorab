@@ -11,7 +11,7 @@ use crate::model::{CalculationResult, Component, ElementKind, PipeNode, calculat
 fn ui_val(ui: &mut Ui, label: &str, val: &mut f64) {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.add(egui::DragValue::new(val));
+        ui.add(egui::DragValue::new(val).range(0.0..=f32::INFINITY));
     });
 }
 
@@ -236,12 +236,20 @@ fn draw_results_table(ui: &mut egui::Ui, pipeline: &Component) {
         });
 }
 
+// Состояние приложения - граф, имя файла и результат(ошибка)
+#[derive(Default)]
+enum CalculationState {
+    #[default]
+    Idle,
+    Success(CalculationResult),
+    Error(String),
+}
+
 pub struct HydroApp {
     snarl: Snarl<PipeNode>,
     style: SnarlStyle,
     filename: String,
-    calc_result: Option<CalculationResult>,
-    calc_error: String,
+    calc_state: CalculationState,
 }
 
 impl Default for HydroApp {
@@ -250,8 +258,7 @@ impl Default for HydroApp {
             snarl: Snarl::new(),
             style: SnarlStyle::default(),
             filename: "NewPipeline.json".to_owned(),
-            calc_result: None,
-            calc_error: String::new(),
+            calc_state: CalculationState::Idle,
         }
     }
 }
@@ -278,55 +285,52 @@ impl eframe::App for HydroApp {
                 ui.separator();
 
                 if ui.button("▶ Рассчитать").clicked() {
-                    self.calc_error.clear();
                     match calculate_pipeline(&self.snarl) {
-                        Ok(res) => self.calc_result = Some(res),
-                        Err(err) => {
-                            self.calc_result = None;
-                            self.calc_error = err;
-                        }
+                        Ok(res) => self.calc_state = CalculationState::Success(res),
+                        Err(err) => self.calc_state = CalculationState::Error(err),
                     }
                 }
             });
         });
 
-        if self.calc_result.is_some() || !self.calc_error.is_empty() {
+        if !matches!(self.calc_state, CalculationState::Idle) {
             egui::Panel::bottom("calc_panel")
                 .resizable(true)
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.heading("Результаты");
                         if ui.button("Закрыть").clicked() {
-                            self.calc_result = None;
-                            self.calc_error.clear();
+                            self.calc_state = CalculationState::Idle;
                         }
                     });
                     ui.separator();
 
-                    // Отображаем ошибку красным цветом, если она есть
-                    if !self.calc_error.is_empty() {
-                        ui.colored_label(egui::Color32::RED, &self.calc_error);
-                    }
+                    match &self.calc_state {
+                        CalculationState::Idle => {}
+                        CalculationState::Error(err_msg) => {
+                            ui.colored_label(egui::Color32::RED, err_msg);
+                        }
+                        CalculationState::Success(res) => {
+                            ui.horizontal(|ui| {
+                                ui.label(format!(
+                                    "Общее сопротивление: {:.4e} Па·с²/м⁶",
+                                    res.k_total
+                                ));
+                                ui.separator();
+                                ui.label(format!("Статический напор: {:.2} м", res.h_static));
+                                ui.separator();
+                                ui.label(format!(
+                                    "Рабочая точка: Q = {:.2} л/с, H = {:.2} м",
+                                    res.q_op * 1000.0,
+                                    res.h_op
+                                ));
+                                ui.separator();
+                                ui.label(format!("P вх: {:.1} кПа", res.p_in / 1000.0));
+                            });
 
-                    // Если расчет прошел успешно, рисуем таблицу
-                    if let Some(res) = &self.calc_result {
-                        ui.horizontal(|ui| {
-                            ui.label(format!("Общее сопротивление: {:.4e} Па·с²/м⁶", res.k_total));
-                            ui.separator();
-                            ui.label(format!("Статический напор: {:.2} м", res.h_static));
-                            ui.separator();
-                            ui.label(format!(
-                                "Рабочая точка: Q = {:.2} л/с, H = {:.2} м",
-                                res.q_op * 1000.0,
-                                res.h_op
-                            ));
-                            ui.separator();
-                            ui.label(format!("P вх: {:.1} кПа", res.p_in / 1000.0));
-                        });
-
-                        ui.add_space(8.0);
-
-                        draw_results_table(ui, &res.pipeline);
+                            ui.add_space(8.0);
+                            draw_results_table(ui, &res.pipeline);
+                        }
                     }
                 });
         }
