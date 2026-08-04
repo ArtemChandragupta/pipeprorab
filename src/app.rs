@@ -164,6 +164,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
 pub struct HydroApp {
     snarl: Snarl<PipeNode>,
     style: SnarlStyle,
+    filename: String,
 }
 
 impl Default for HydroApp {
@@ -171,6 +172,7 @@ impl Default for HydroApp {
         Self {
             snarl: Snarl::new(),
             style: SnarlStyle::default(),
+            filename: "NewPipeline.json".to_owned(),
         }
     }
 }
@@ -178,7 +180,22 @@ impl Default for HydroApp {
 impl eframe::App for HydroApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         egui::Panel::top("top_bar").show(ui, |ui| {
-            ui.heading("Hello World!");
+            ui.horizontal(|ui| {
+                ui.heading("Файл:");
+                ui.add(egui::TextEdit::singleline(&mut self.filename).desired_width(150.0));
+
+                if ui.button("Сохранить JSON").clicked()
+                    && let Ok(s) = serde_json::to_string_pretty(&self.snarl)
+                {
+                    let _ = std::fs::write(&self.filename, s);
+                }
+                if ui.button("Загрузить JSON").clicked()
+                    && let Ok(s) = std::fs::read_to_string(&self.filename)
+                    && let Ok(snarl) = serde_json::from_str(&s)
+                {
+                    self.snarl = snarl;
+                }
+            });
         });
 
         egui::CentralPanel::default().show(ui, |ui| {

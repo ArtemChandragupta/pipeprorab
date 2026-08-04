@@ -1,3 +1,8 @@
+const G_GRAV: f64 = 9.81;
+const RHO: f64 = 1000.0;
+const NU: f64 = 1e-6;
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub enum PipeNode {
     Pipe {
         length: f64,
