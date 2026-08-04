@@ -3,8 +3,16 @@ use egui_snarl::{
     InPin, NodeId, OutPin, Snarl,
     ui::{PinInfo, SnarlStyle, SnarlViewer},
 };
+use std::fmt::Write;
 
-use crate::model::PipeNode;
+use crate::model::{
+    Component, ElementKind, PipeNode, Pump, build_model, calc_flow_pressure, get_static_pressure,
+    solve_operating_point, update_k,
+};
+
+const G_GRAV: f64 = 9.81;
+const RHO: f64 = 1000.0;
+const NU: f64 = 1e-6;
 
 // Слайдер и поле для значения в виде-графе
 fn ui_val(ui: &mut Ui, label: &str, val: &mut f64) {
@@ -14,8 +22,8 @@ fn ui_val(ui: &mut Ui, label: &str, val: &mut f64) {
     });
 }
 
+// Поле с трубопроводом
 struct PipeViewer;
-
 impl SnarlViewer<PipeNode> for PipeViewer {
     fn connect(&mut self, from: &OutPin, to: &InPin, snarl: &mut Snarl<PipeNode>) {
         snarl.connect(from.id, to.id);
@@ -161,10 +169,37 @@ impl SnarlViewer<PipeNode> for PipeViewer {
     }
 }
 
+fn format_element_tree(comp: &Component, depth: usize, out: &mut String) {
+    let name_col = format!("{}{}", "  ".repeat(depth), comp.name);
+    let name_str = if name_col.chars().count() > 30 {
+        format!("{}...", name_col.chars().take(27).collect::<String>())
+    } else {
+        name_col
+    };
+    let st = &comp.state;
+
+    let _ = writeln!(
+        out,
+        "| {name_str:<30} | {:<10} | {:>12.2} | {:>10.1} | {:>11.1} | {:>8.1} |",
+        comp.type_name(),
+        st.q * 1000.0,
+        st.p_in / 1000.0,
+        st.p_out / 1000.0,
+        (st.p_in - st.p_out) / 1000.0
+    );
+
+    if let ElementKind::Series(elems) | ElementKind::Parallel(elems) = &comp.kind {
+        for sub in elems {
+            format_element_tree(sub, depth + 1, out);
+        }
+    }
+}
+
 pub struct HydroApp {
     snarl: Snarl<PipeNode>,
     style: SnarlStyle,
     filename: String,
+    calc_result: String,
 }
 
 impl Default for HydroApp {
@@ -173,12 +208,13 @@ impl Default for HydroApp {
             snarl: Snarl::new(),
             style: SnarlStyle::default(),
             filename: "NewPipeline.json".to_owned(),
+            calc_result: String::new(),
         }
     }
 }
 
 impl eframe::App for HydroApp {
-    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         egui::Panel::top("top_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("Файл:");
@@ -195,8 +231,58 @@ impl eframe::App for HydroApp {
                 {
                     self.snarl = snarl;
                 }
+
+                ui.separator();
+
+                if ui.button("▶ Рассчитать").clicked() {
+                    let mut res = String::new();
+                    match build_model(&self.snarl) {
+                        Ok((pts, mut pipeline)) => match Pump::from_points(&pts) {
+                            Ok(pump) => {
+                                let (mut q_op, mut h_op, mut k_total, mut converged) = (0.1, 0.0, 1.0, false);
+                                let h_static = get_static_pressure(&pipeline) / (RHO * G_GRAV);
+
+                                for _ in 0..100 {
+                                    k_total = update_k(&mut pipeline, q_op);
+                                    if let Ok((q_new, h_new)) = solve_operating_point(&pump, k_total, h_static) {
+                                        if (q_new - q_op).abs() < 1e-6 { q_op = q_new; h_op = h_new; converged = true; break; }
+                                        q_op = (q_op + q_new) / 2.0;
+                                    } else { break; }
+                                }
+
+                                if converged {
+                                    let start_p = RHO * G_GRAV * h_op;
+                                    calc_flow_pressure(&mut pipeline, q_op, start_p);
+                                    let _ = writeln!(res, "=== ХАРАКТЕРИСТИКИ СЕТИ ===\nОбщее сопротивление : {k_total:.4e} Па·с²/м⁶\nСтатический напор   : {h_static:.2} м\nРабочая точка       : Q = {:.2} л/с, H = {h_op:.2} м\nДавление на входе   : {:.1} кПа\n\n=== СТРУКТУРА ===\n| {:<30} | {:<10} | {:>12} | {:>10} | {:>11} | {:>8} |\n|{}|{}|{}|{}|{}|{}|",
+                                        q_op * 1000.0, start_p / 1000.0, "Элемент", "Тип", "Расход (л/с)", "P вх (кПа)", "P вых (кПа)", "dP (кПа)", "-".repeat(32), "-".repeat(12), "-".repeat(14), "-".repeat(12), "-".repeat(13), "-".repeat(10));
+                                    format_element_tree(&pipeline, 0, &mut res);
+                                } else { res.push_str("Ошибка: Расчет не сошелся.\n"); }
+                            },
+                            Err(e) => { let _ = writeln!(res, "Ошибка насоса: {e}"); }
+                        },
+                        Err(e) => { let _ = writeln!(res, "Ошибка модели: {e}"); }
+                    }
+                    self.calc_result = res;
+                }
             });
         });
+
+        if !self.calc_result.is_empty() {
+            egui::Panel::bottom("calc_panel")
+                .resizable(true)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.heading("Результаты");
+                        if ui.button("Закрыть").clicked() {
+                            self.calc_result.clear();
+                        }
+                    });
+                    ui.separator();
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        ui.label(egui::RichText::new(&self.calc_result).monospace())
+                    });
+                });
+        }
 
         egui::CentralPanel::default().show(ui, |ui| {
             let id = ui.make_persistent_id("snarl_editor");
