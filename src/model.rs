@@ -1,6 +1,5 @@
 use egui_snarl::{NodeId, Snarl};
 use std::f64::consts::PI;
-use std::fmt::Write;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     f64,
@@ -30,24 +29,24 @@ pub enum PipeNode {
 // --- СТРУКТУРЫ ДЛЯ РАСЧЕТА ---
 // Гидравлическое состояние элемента
 #[derive(Default, Debug, Clone)]
-struct HydraulicState {
-    k: f64,
-    q: f64,
-    p_in: f64,
-    p_out: f64,
+pub struct HydraulicState {
+    pub k: f64,
+    pub q: f64,
+    pub p_in: f64,
+    pub p_out: f64,
 }
 
 // Имя, тип и состояние элемента
 #[derive(Debug, Clone)]
-struct Component {
-    name: String,
-    kind: ElementKind,
-    state: HydraulicState,
+pub struct Component {
+    pub name: String,
+    pub kind: ElementKind,
+    pub state: HydraulicState,
 }
 
 // Различные типы элементов для расчета, чтобы построить из них вложенный граф для рекурсии. Здесь нет насоса, зато есть параллельность и последовательность - всё для парсинга
 #[derive(Debug, Clone)]
-enum ElementKind {
+pub enum ElementKind {
     Pipe { l: f64, d: f64, r: f64 },
     Fitting { d: f64, zeta: f64 },
     Series(Vec<Component>),
@@ -63,7 +62,7 @@ impl Component {
         }
     }
 
-    fn type_name(&self) -> &'static str {
+    pub fn type_name(&self) -> &'static str {
         match self.kind {
             ElementKind::Pipe { .. } => "pipe",
             ElementKind::Fitting { .. } => "fitting",
@@ -369,89 +368,60 @@ fn build_model(snarl: &Snarl<PipeNode>) -> Result<([[f64; 2]; 3], Component), &'
     ))
 }
 
-// --- ФОРМАТИРОВАНИЕ И ИТОГОВЫЙ РАСЧЕТ ---
-fn format_element_tree(comp: &Component, depth: usize, out: &mut String) {
-    let name_col = format!("{}{}", "  ".repeat(depth), comp.name);
-    let name_str = if name_col.chars().count() > 30 {
-        format!("{}...", name_col.chars().take(27).collect::<String>())
-    } else {
-        name_col
-    };
-    let st = &comp.state;
-
-    let _ = writeln!(
-        out,
-        "| {name_str:<30} | {:<10} | {:>12.2} | {:>10.1} | {:>11.1} | {:>8.1} |",
-        comp.type_name(),
-        st.q * 1000.0,
-        st.p_in / 1000.0,
-        st.p_out / 1000.0,
-        (st.p_in - st.p_out) / 1000.0
-    );
-
-    if let ElementKind::Series(elems) | ElementKind::Parallel(elems) = &comp.kind {
-        for sub in elems {
-            format_element_tree(sub, depth + 1, out);
-        }
-    }
+// --- ИТОГОВЫЙ РАСЧЕТ ---
+#[derive(Debug, Clone)]
+pub struct CalculationResult {
+    pub k_total: f64,
+    pub h_static: f64,
+    pub q_op: f64,
+    pub h_op: f64,
+    pub p_in: f64,
+    pub pipeline: Component,
 }
 
-pub fn calculate_pipeline(snarl: &Snarl<PipeNode>) -> String {
-    let mut res = String::new();
-    match build_model(snarl) {
-        Ok((pts, mut pipeline)) => match Pump::from_points(&pts) {
-            Ok(pump) => {
-                let (mut q_op, mut h_op, mut k_total, mut converged) = (0.1, 0.0, 1.0, false);
-                let h_static = get_static_pressure(&pipeline) / (RHO * G_GRAV);
+pub fn calculate_pipeline(snarl: &Snarl<PipeNode>) -> Result<CalculationResult, String> {
+    let (pts, mut pipeline) =
+        build_model(snarl).map_err(|e| format!("Ошибка сборки модели: {e}"))?;
+    let pump = Pump::from_points(&pts).map_err(|e| format!("Ошибка насоса: {e}"))?;
 
-                for _ in 0..100 {
-                    k_total = update_k(&mut pipeline, q_op);
-                    if let Ok((q_new, h_new)) = solve_operating_point(&pump, k_total, h_static) {
-                        if (q_new - q_op).abs() < 1e-6 {
-                            q_op = q_new;
-                            h_op = h_new;
-                            converged = true;
-                            break;
-                        }
-                        q_op = (q_op + q_new) / 2.0;
-                    } else {
-                        break;
-                    }
-                }
+    // Итерационный поиск рабочей точки
+    let mut q_op = 0.1;
+    let mut h_op = 0.0;
+    let mut k_total = 1.0;
+    let h_static = get_static_pressure(&pipeline) / (RHO * G_GRAV);
+    let mut converged = false;
 
-                if converged {
-                    let start_p = RHO * G_GRAV * h_op;
-                    calc_flow_pressure(&mut pipeline, q_op, start_p);
-                    let _ = writeln!(
-                        res,
-                        "=== ХАРАКТЕРИСТИКИ СЕТИ ===\nОбщее сопротивление : {k_total:.4e} Па·с²/м⁶\nСтатический напор   : {h_static:.2} м\nРабочая точка       : Q = {:.2} л/с, H = {h_op:.2} м\nДавление на входе   : {:.1} кПа\n\n=== СТРУКТУРА ===\n| {:<30} | {:<10} | {:>12} | {:>10} | {:>11} | {:>8} |\n|{}|{}|{}|{}|{}|{}|",
-                        q_op * 1000.0,
-                        start_p / 1000.0,
-                        "Элемент",
-                        "Тип",
-                        "Расход (л/с)",
-                        "P вх (кПа)",
-                        "P вых (кПа)",
-                        "dP (кПа)",
-                        "-".repeat(32),
-                        "-".repeat(12),
-                        "-".repeat(14),
-                        "-".repeat(12),
-                        "-".repeat(13),
-                        "-".repeat(10)
-                    );
-                    format_element_tree(&pipeline, 0, &mut res);
-                } else {
-                    res.push_str("Ошибка: Расчет не сошелся.\n");
-                }
+    for _ in 0..100 {
+        k_total = update_k(&mut pipeline, q_op);
+
+        if let Ok((q_new, h_new)) = solve_operating_point(&pump, k_total, h_static) {
+            if (q_new - q_op).abs() < 1e-6 {
+                q_op = q_new;
+                h_op = h_new;
+                converged = true;
+                break;
             }
-            Err(e) => {
-                let _ = writeln!(res, "Ошибка насоса: {e}");
-            }
-        },
-        Err(e) => {
-            let _ = writeln!(res, "Ошибка модели: {e}");
+            // Метод простых итераций с демпфированием
+            q_op = (q_op + q_new) / 2.0;
+        } else {
+            break; // Решения нет (кривые не пересекаются)
         }
     }
-    res
+
+    if converged {
+        // Распределяем итоговое давление и расход по всем узлам графа
+        let start_p = RHO * G_GRAV * h_op;
+        calc_flow_pressure(&mut pipeline, q_op, start_p);
+
+        Ok(CalculationResult {
+            k_total,
+            h_static,
+            q_op,
+            h_op,
+            p_in: start_p,
+            pipeline,
+        })
+    } else {
+        Err("Расчет не сошелся. Проверьте рабочие точки насоса и параметры сети.".to_owned())
+    }
 }

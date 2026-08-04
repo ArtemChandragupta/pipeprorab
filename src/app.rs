@@ -1,10 +1,11 @@
 use eframe::egui::{self, Ui};
+use egui_extras::{Column, TableBuilder};
 use egui_snarl::{
     InPin, NodeId, OutPin, Snarl,
     ui::{PinInfo, SnarlStyle, SnarlViewer},
 };
 
-use crate::model::{PipeNode, calculate_pipeline};
+use crate::model::{CalculationResult, Component, ElementKind, PipeNode, calculate_pipeline};
 
 // Слайдер и поле для значения в виде-графе
 fn ui_val(ui: &mut Ui, label: &str, val: &mut f64) {
@@ -153,7 +154,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
             snarl.insert_node(
                 pos,
                 PipeNode::Pump {
-                    points: [(1.0, 1.0), (2.0, 0.5), (3.0, 0.3)],
+                    points: [(1.0, 0.3), (2.0, 0.5), (3.0, 1.0)],
                 },
             );
             ui.close();
@@ -161,11 +162,86 @@ impl SnarlViewer<PipeNode> for PipeViewer {
     }
 }
 
+// Отрисовка таблицы и вспомогательная функция
+fn flatten_pipeline<'a>(comp: &'a Component, depth: usize, out: &mut Vec<(usize, &'a Component)>) {
+    out.push((depth, comp));
+    if let ElementKind::Series(elems) | ElementKind::Parallel(elems) = &comp.kind {
+        for sub in elems {
+            flatten_pipeline(sub, depth + 1, out);
+        }
+    }
+}
+
+fn draw_results_table(ui: &mut egui::Ui, pipeline: &Component) {
+    let mut flat_tree = Vec::new();
+    flatten_pipeline(pipeline, 0, &mut flat_tree);
+
+    TableBuilder::new(ui)
+        .striped(true)
+        .resizable(true)
+        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+        .column(Column::initial(220.0).at_least(100.0)) // Название
+        .column(Column::initial(100.0).at_least(60.0)) // Тип
+        .column(Column::initial(100.0).at_least(60.0)) // Расход
+        .column(Column::initial(100.0).at_least(60.0)) // P вх
+        .column(Column::initial(100.0).at_least(60.0)) // P вых
+        .column(Column::remainder().at_least(80.0)) // dP
+        .header(24.0, |mut header| {
+            header.col(|ui| {
+                ui.strong("Элемент");
+            });
+            header.col(|ui| {
+                ui.strong("Тип");
+            });
+            header.col(|ui| {
+                ui.strong("Расход (л/с)");
+            });
+            header.col(|ui| {
+                ui.strong("P вх (кПа)");
+            });
+            header.col(|ui| {
+                ui.strong("P вых (кПа)");
+            });
+            header.col(|ui| {
+                ui.strong("dP (кПа)");
+            });
+        })
+        .body(|mut body| {
+            for (depth, comp) in flat_tree {
+                body.row(22.0, |mut row| {
+                    row.col(|ui| {
+                        let indent = "   ".repeat(depth);
+                        ui.label(format!("{indent}{}", comp.name));
+                    });
+                    row.col(|ui| {
+                        ui.label(comp.type_name());
+                    });
+                    row.col(|ui| {
+                        ui.label(format!("{:.2}", comp.state.q * 1000.0));
+                    });
+                    row.col(|ui| {
+                        ui.label(format!("{:.1}", comp.state.p_in / 1000.0));
+                    });
+                    row.col(|ui| {
+                        ui.label(format!("{:.1}", comp.state.p_out / 1000.0));
+                    });
+                    row.col(|ui| {
+                        ui.label(format!(
+                            "{:.1}",
+                            (comp.state.p_in - comp.state.p_out) / 1000.0
+                        ));
+                    });
+                });
+            }
+        });
+}
+
 pub struct HydroApp {
     snarl: Snarl<PipeNode>,
     style: SnarlStyle,
     filename: String,
-    calc_result: String,
+    calc_result: Option<CalculationResult>,
+    calc_error: String,
 }
 
 impl Default for HydroApp {
@@ -174,7 +250,8 @@ impl Default for HydroApp {
             snarl: Snarl::new(),
             style: SnarlStyle::default(),
             filename: "NewPipeline.json".to_owned(),
-            calc_result: String::new(),
+            calc_result: None,
+            calc_error: String::new(),
         }
     }
 }
@@ -201,25 +278,56 @@ impl eframe::App for HydroApp {
                 ui.separator();
 
                 if ui.button("▶ Рассчитать").clicked() {
-                    self.calc_result = calculate_pipeline(&self.snarl);
+                    self.calc_error.clear();
+                    match calculate_pipeline(&self.snarl) {
+                        Ok(res) => self.calc_result = Some(res),
+                        Err(err) => {
+                            self.calc_result = None;
+                            self.calc_error = err;
+                        }
+                    }
                 }
             });
         });
 
-        if !self.calc_result.is_empty() {
+        if self.calc_result.is_some() || !self.calc_error.is_empty() {
             egui::Panel::bottom("calc_panel")
                 .resizable(true)
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.heading("Результаты");
                         if ui.button("Закрыть").clicked() {
-                            self.calc_result.clear();
+                            self.calc_result = None;
+                            self.calc_error.clear();
                         }
                     });
                     ui.separator();
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        ui.label(egui::RichText::new(&self.calc_result).monospace())
-                    });
+
+                    // Отображаем ошибку красным цветом, если она есть
+                    if !self.calc_error.is_empty() {
+                        ui.colored_label(egui::Color32::RED, &self.calc_error);
+                    }
+
+                    // Если расчет прошел успешно, рисуем таблицу
+                    if let Some(res) = &self.calc_result {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("Общее сопротивление: {:.4e} Па·с²/м⁶", res.k_total));
+                            ui.separator();
+                            ui.label(format!("Статический напор: {:.2} м", res.h_static));
+                            ui.separator();
+                            ui.label(format!(
+                                "Рабочая точка: Q = {:.2} л/с, H = {:.2} м",
+                                res.q_op * 1000.0,
+                                res.h_op
+                            ));
+                            ui.separator();
+                            ui.label(format!("P вх: {:.1} кПа", res.p_in / 1000.0));
+                        });
+
+                        ui.add_space(8.0);
+
+                        draw_results_table(ui, &res.pipeline);
+                    }
                 });
         }
 
