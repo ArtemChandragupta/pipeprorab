@@ -1,0 +1,205 @@
+{
+  "nodes": {
+    "0": {
+      "value": {
+        "Pump": {
+          "points": [
+            [
+              0.0,
+              135.0
+            ],
+            [
+              0.1388,
+              135.0
+            ],
+            [
+              0.3611,
+              85.0
+            ]
+          ]
+        }
+      },
+      "pos": {
+        "x": -110.515625,
+        "y": 407.6289
+      },
+      "open": true
+    },
+    "1": {
+      "value": {
+        "Fitting": {
+          "diameter": 0.05,
+          "zeta": 4.0
+        }
+      },
+      "pos": {
+        "x": 563.64844,
+        "y": 311.59766
+      },
+      "open": true
+    },
+    "2": {
+      "value": {
+        "Fitting": {
+          "diameter": 0.05,
+          "zeta": 4.0
+        }
+      },
+      "pos": {
+        "x": 909.0,
+        "y": 329.0
+      },
+      "open": true
+    },
+    "3": {
+      "value": {
+        "Pipe": {
+          "length": 0.8,
+          "diameter": 0.1,
+          "roughness": 0.00015
+        }
+      },
+      "pos": {
+        "x": 856.2578,
+        "y": 530.97266
+      },
+      "open": true
+    },
+    "4": {
+      "value": {
+        "Fitting": {
+          "diameter": 0.05,
+          "zeta": 4.0
+        }
+      },
+      "pos": {
+        "x": 567.66797,
+        "y": 527.1719
+      },
+      "open": true
+    },
+    "5": {
+      "value": {
+        "Pipe": {
+          "length": 60.0,
+          "diameter": 0.057,
+          "roughness": 0.0001
+        }
+      },
+      "pos": {
+        "x": 1388.1719,
+        "y": 424.2422
+      },
+      "open": true
+    },
+    "6": {
+      "value": {
+        "Fitting": {
+          "diameter": 0.05,
+          "zeta": 4.0
+        }
+      },
+      "pos": {
+        "x": 1121.9453,
+        "y": 447.92188
+      },
+      "open": true
+    },
+    "7": {
+      "value": {
+        "Pipe": {
+          "length": 60.0,
+          "diameter": 0.057,
+          "roughness": 0.00001
+        }
+      },
+      "pos": {
+        "x": 267.72656,
+        "y": 408.76953
+      },
+      "open": true
+    }
+  },
+  "wires": [
+    {
+      "out_pin": {
+        "node": 7,
+        "output": 0
+      },
+      "in_pin": {
+        "node": 1,
+        "input": 0
+      }
+    },
+    {
+      "out_pin": {
+        "node": 1,
+        "output": 0
+      },
+      "in_pin": {
+        "node": 2,
+        "input": 0
+      }
+    },
+    {
+      "out_pin": {
+        "node": 6,
+        "output": 0
+      },
+      "in_pin": {
+        "node": 5,
+        "input": 0
+      }
+    },
+    {
+      "out_pin": {
+        "node": 2,
+        "output": 0
+      },
+      "in_pin": {
+        "node": 6,
+        "input": 0
+      }
+    },
+    {
+      "out_pin": {
+        "node": 4,
+        "output": 0
+      },
+      "in_pin": {
+        "node": 3,
+        "input": 0
+      }
+    },
+    {
+      "out_pin": {
+        "node": 7,
+        "output": 0
+      },
+      "in_pin": {
+        "node": 4,
+        "input": 0
+      }
+    },
+    {
+      "out_pin": {
+        "node": 3,
+        "output": 0
+      },
+      "in_pin": {
+        "node": 6,
+        "input": 0
+      }
+    },
+    {
+      "out_pin": {
+        "node": 0,
+        "output": 0
+      },
+      "in_pin": {
+        "node": 7,
+        "input": 0
+      }
+    }
+  ]
+}

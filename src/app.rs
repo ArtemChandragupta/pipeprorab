@@ -1,5 +1,6 @@
 use eframe::egui::{self, Ui};
 use egui_extras::{Column, TableBuilder};
+use egui_plot::{Legend, Line, Plot, PlotPoints, Points};
 use egui_snarl::{
     InPin, NodeId, OutPin, Snarl,
     ui::{PinInfo, SnarlStyle, SnarlViewer},
@@ -11,7 +12,12 @@ use crate::model::{CalculationResult, Component, ElementKind, PipeNode, calculat
 fn ui_val(ui: &mut Ui, label: &str, val: &mut f64) {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.add(egui::DragValue::new(val).range(0.0..=f32::INFINITY));
+        ui.add(
+            egui::DragValue::new(val)
+                .range(0.0..=f32::INFINITY)
+                .speed(0.00001)
+                .max_decimals(6),
+        );
     });
 }
 
@@ -65,9 +71,9 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                 for (i, (q, h)) in points.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
                         ui.label(format!("{}: Q (м³/ч):", i + 1));
-                        ui.add(egui::DragValue::new(q));
+                        ui.add(egui::DragValue::new(q).speed(0.00001).max_decimals(6));
                         ui.label("H (м):");
-                        ui.add(egui::DragValue::new(h));
+                        ui.add(egui::DragValue::new(h).speed(0.00001).max_decimals(6));
                     });
                 }
             }
@@ -236,6 +242,114 @@ fn draw_results_table(ui: &mut egui::Ui, pipeline: &Component) {
         });
 }
 
+// Характеристики сети и насоса
+fn interpolate_quadratic(p0: [f64; 2], p1: [f64; 2], p2: [f64; 2], q: f64) -> f64 {
+    let (q0, h0) = (p0[0], p0[1]);
+    let (q1, h1) = (p1[0], p1[1]);
+    let (q2, h2) = (p2[0], p2[1]);
+
+    let l0 = (q - q1) * (q - q2) / ((q0 - q1) * (q0 - q2));
+    let l1 = (q - q0) * (q - q2) / ((q1 - q0) * (q1 - q2));
+    let l2 = (q - q0) * (q - q1) / ((q2 - q0) * (q2 - q1));
+
+    h0 * l0 + h1 * l1 + h2 * l2
+}
+
+pub fn draw_hq_plot(ui: &mut egui::Ui, res: &CalculationResult, snarl: &Snarl<PipeNode>) {
+    ui.heading("Характеристики системы (Q-H)");
+
+    let plot = Plot::new("hq_plot")
+        .height(300.0)
+        .x_axis_label("Расход Q (л/с)")
+        .y_axis_label("Напор H (м)")
+        .legend(Legend::default())
+        .include_x(0.0)
+        .allow_zoom(true)
+        .include_y(0.0);
+
+    plot.show(ui, |plot_ui| {
+        // Единый формат для оси X: л/с
+        let op_q_ls = res.q_op * 1000.0; // м³/с -> л/с
+
+        // Гарантируем, что H лежит строго на кривой сети: H = H_stat + K * Q²
+        let op_h = res.h_static + res.k_total * res.q_op * res.q_op;
+
+        let q_max_ls = (op_q_ls * 1.5).max(10.0);
+        let steps = 100;
+
+        // 1. Построение параболы гидравлической сети
+        let mut net_points = Vec::with_capacity(steps + 1);
+        for i in 0..=steps {
+            let q_ls = q_max_ls * (i as f64) / (steps as f64);
+            let q_m3s = q_ls / 1000.0; // Для расчета напора переводим обратно в м³/с
+            let h = res.h_static + res.k_total * q_m3s * q_m3s;
+            net_points.push([q_ls, h]);
+        }
+
+        plot_ui.line(
+            Line::new("Кривая сети", PlotPoints::from(net_points))
+                .width(2.0)
+                .color(egui::Color32::from_rgb(200, 100, 50)),
+        );
+
+        // 2. Построение характеристики насоса (аппроксимация параболой)
+        for node in snarl.nodes() {
+            if let PipeNode::Pump { points } = node {
+                // Переводим исходные точки из м³/ч в л/с
+                let mut pts: Vec<[f64; 2]> = points
+                    .iter()
+                    .map(|&(q, h)| [q / 3.6, h]) // м³/ч -> л/с
+                    .collect();
+
+                pts.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap());
+
+                if pts.len() >= 3 {
+                    // Строим плавную параболу по первым трем точкам
+                    let p0 = pts[0];
+                    let p1 = pts[1];
+                    let p2 = pts[2];
+
+                    let min_q = 0.0;
+                    let max_q = pts.last().unwrap()[0] * 1.15;
+
+                    let mut dense_pump_pts = Vec::with_capacity(steps + 1);
+                    for i in 0..=steps {
+                        let q = min_q + (max_q - min_q) * (i as f64) / (steps as f64);
+                        let h = interpolate_quadratic(p0, p1, p2, q);
+                        dense_pump_pts.push([q, h]);
+                    }
+
+                    // Плавная линия характеристики насоса
+                    plot_ui.line(
+                        Line::new("Насос (H-Q)", PlotPoints::from(dense_pump_pts))
+                            .width(2.0)
+                            .color(egui::Color32::from_rgb(50, 150, 250)),
+                    );
+
+                    // Опорные паспортные точки насоса
+                    plot_ui.points(
+                        Points::new("Паспортные точки", PlotPoints::from(pts))
+                            .radius(3.5)
+                            .color(egui::Color32::from_rgb(50, 100, 200)),
+                    );
+                } else {
+                    plot_ui.line(
+                        Line::new("Насос (ломаная)", PlotPoints::from(pts))
+                            .color(egui::Color32::from_rgb(50, 150, 250)),
+                    );
+                }
+            }
+        }
+
+        // 3. Рабочая точка (лежащая точно на характеристике сети)
+        plot_ui.points(
+            Points::new("Рабочая точка", PlotPoints::from(vec![[op_q_ls, op_h]]))
+                .radius(5.0)
+                .color(egui::Color32::RED),
+        );
+    });
+}
+
 // Состояние приложения - граф, имя файла и результат(ошибка)
 #[derive(Default)]
 enum CalculationState {
@@ -327,6 +441,8 @@ impl eframe::App for HydroApp {
                                 ui.separator();
                                 ui.label(format!("P вх: {:.1} кПа", res.p_in / 1000.0));
                             });
+
+                            draw_hq_plot(ui, res, &self.snarl);
 
                             ui.add_space(8.0);
                             draw_results_table(ui, &res.pipeline);
