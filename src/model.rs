@@ -5,8 +5,8 @@ use std::{
     f64,
 };
 
-const G_GRAV: f64 = 9.81;
-const RHO: f64 = 1000.0;
+pub const G_GRAV: f64 = 9.81;
+pub const RHO: f64 = 1000.0;
 const NU: f64 = 1e-6;
 
 // Структура для графического отображения - с неё всё начинается
@@ -189,7 +189,11 @@ fn calc_flow_pressure(comp: &mut Component, q_in: f64, p_in: f64) -> f64 {
 
             for (b, &inv) in branches.iter_mut().zip(&invs) {
                 let share = if has_inf {
-                    if inv == f64::INFINITY { 1.0 } else { 0.0 }
+                    if inv == f64::INFINITY {
+                        1.0
+                    } else {
+                        0.0
+                    }
                 } else {
                     inv / total_inv
                 };

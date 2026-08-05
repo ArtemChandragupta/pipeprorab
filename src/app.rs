@@ -6,7 +6,9 @@ use egui_snarl::{
     ui::{PinInfo, SnarlStyle, SnarlViewer},
 };
 
-use crate::model::{CalculationResult, Component, ElementKind, PipeNode, calculate_pipeline};
+use crate::model::{
+    CalculationResult, Component, ElementKind, G_GRAV, PipeNode, RHO, calculate_pipeline,
+};
 
 // Слайдер и поле для значения в виде-графе
 fn ui_val(ui: &mut Ui, label: &str, val: &mut f64) {
@@ -70,7 +72,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                 ui.label("Рабочие точки:");
                 for (i, (q, h)) in points.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
-                        ui.label(format!("{}: Q (м³/ч):", i + 1));
+                        ui.label(format!("{}: Q (м³/с):", i + 1));
                         ui.add(egui::DragValue::new(q).speed(0.00001).max_decimals(6));
                         ui.label("H (м):");
                         ui.add(egui::DragValue::new(h).speed(0.00001).max_decimals(6));
@@ -160,7 +162,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
             snarl.insert_node(
                 pos,
                 PipeNode::Pump {
-                    points: [(1.0, 0.3), (2.0, 0.5), (3.0, 1.0)],
+                    points: [(0.01, 20.0), (0.02, 15.0), (0.03, 5.0)],
                 },
             );
             ui.close();
@@ -200,7 +202,7 @@ fn draw_results_table(ui: &mut egui::Ui, pipeline: &Component) {
                 ui.strong("Тип");
             });
             header.col(|ui| {
-                ui.strong("Расход (л/с)");
+                ui.strong("Расход (м³/с)");
             });
             header.col(|ui| {
                 ui.strong("P вх (кПа)");
@@ -223,7 +225,7 @@ fn draw_results_table(ui: &mut egui::Ui, pipeline: &Component) {
                         ui.label(comp.type_name());
                     });
                     row.col(|ui| {
-                        ui.label(format!("{:.2}", comp.state.q * 1000.0));
+                        ui.label(format!("{:.2}", comp.state.q));
                     });
                     row.col(|ui| {
                         ui.label(format!("{:.1}", comp.state.p_in / 1000.0));
@@ -260,7 +262,7 @@ pub fn draw_hq_plot(ui: &mut egui::Ui, res: &CalculationResult, snarl: &Snarl<Pi
 
     let plot = Plot::new("hq_plot")
         .height(300.0)
-        .x_axis_label("Расход Q (л/с)")
+        .x_axis_label("Расход Q (м³/с)")
         .y_axis_label("Напор H (м)")
         .legend(Legend::default())
         .include_x(0.0)
@@ -268,38 +270,28 @@ pub fn draw_hq_plot(ui: &mut egui::Ui, res: &CalculationResult, snarl: &Snarl<Pi
         .include_y(0.0);
 
     plot.show(ui, |plot_ui| {
-        // Единый формат для оси X: л/с
-        let op_q_ls = res.q_op * 1000.0; // м³/с -> л/с
+        let op_q = res.q_op;
+        let op_h = res.h_op;
 
-        // Гарантируем, что H лежит строго на кривой сети: H = H_stat + K * Q²
-        let op_h = res.h_static + res.k_total * res.q_op * res.q_op;
-
-        let q_max_ls = (op_q_ls * 1.5).max(10.0);
+        let q_max = (op_q * 1.5).max(0.01);
         let steps = 100;
 
-        // 1. Построение параболы гидравлической сети
+        // 1. Построение параболы сети
         let mut net_points = Vec::with_capacity(steps + 1);
         for i in 0..=steps {
-            let q_ls = q_max_ls * (i as f64) / (steps as f64);
-            let q_m3s = q_ls / 1000.0; // Для расчета напора переводим обратно в м³/с
-            let h = res.h_static + res.k_total * q_m3s * q_m3s;
-            net_points.push([q_ls, h]);
+            let q = q_max * (i as f64) / (steps as f64);
+            let h = res.h_static + res.k_total * q * q / (RHO * G_GRAV);
+            net_points.push([q, h]);
         }
 
         plot_ui.line(
-            Line::new("Кривая сети", PlotPoints::from(net_points))
-                .width(2.0)
-                .color(egui::Color32::from_rgb(200, 100, 50)),
+            Line::new("Кривая сети", PlotPoints::from(net_points)).color(egui::Color32::BLUE),
         );
 
         // 2. Построение характеристики насоса (аппроксимация параболой)
         for node in snarl.nodes() {
             if let PipeNode::Pump { points } = node {
-                // Переводим исходные точки из м³/ч в л/с
-                let mut pts: Vec<[f64; 2]> = points
-                    .iter()
-                    .map(|&(q, h)| [q / 3.6, h]) // м³/ч -> л/с
-                    .collect();
+                let mut pts: Vec<[f64; 2]> = points.iter().map(|&(q, h)| [q, h]).collect();
 
                 pts.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap());
 
@@ -322,15 +314,14 @@ pub fn draw_hq_plot(ui: &mut egui::Ui, res: &CalculationResult, snarl: &Snarl<Pi
                     // Плавная линия характеристики насоса
                     plot_ui.line(
                         Line::new("Насос (H-Q)", PlotPoints::from(dense_pump_pts))
-                            .width(2.0)
-                            .color(egui::Color32::from_rgb(50, 150, 250)),
+                            .color(egui::Color32::RED),
                     );
 
                     // Опорные паспортные точки насоса
                     plot_ui.points(
                         Points::new("Паспортные точки", PlotPoints::from(pts))
                             .radius(3.5)
-                            .color(egui::Color32::from_rgb(50, 100, 200)),
+                            .color(egui::Color32::RED),
                     );
                 } else {
                     plot_ui.line(
@@ -343,9 +334,9 @@ pub fn draw_hq_plot(ui: &mut egui::Ui, res: &CalculationResult, snarl: &Snarl<Pi
 
         // 3. Рабочая точка (лежащая точно на характеристике сети)
         plot_ui.points(
-            Points::new("Рабочая точка", PlotPoints::from(vec![[op_q_ls, op_h]]))
+            Points::new("Рабочая точка", PlotPoints::from(vec![[op_q, op_h]]))
                 .radius(5.0)
-                .color(egui::Color32::RED),
+                .color(egui::Color32::GREEN),
         );
     });
 }
@@ -434,9 +425,8 @@ impl eframe::App for HydroApp {
                                 ui.label(format!("Статический напор: {:.2} м", res.h_static));
                                 ui.separator();
                                 ui.label(format!(
-                                    "Рабочая точка: Q = {:.2} л/с, H = {:.2} м",
-                                    res.q_op * 1000.0,
-                                    res.h_op
+                                    "Рабочая точка: Q = {:.2} м/с, H = {:.2} м",
+                                    res.q_op, res.h_op
                                 ));
                                 ui.separator();
                                 ui.label(format!("P вх: {:.1} кПа", res.p_in / 1000.0));
