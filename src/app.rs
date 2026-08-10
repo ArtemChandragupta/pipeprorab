@@ -10,16 +10,32 @@ use crate::model::{
     CalculationResult, Component, ElementKind, G_GRAV, PipeNode, RHO, calculate_pipeline,
 };
 
-// Слайдер и поле для значения в виде-графе
+// Слайдеры и поля для значения в виде-графе
 fn ui_val(ui: &mut Ui, label: &str, val: &mut f64) {
     ui.horizontal(|ui| {
         ui.label(label);
         ui.add(
             egui::DragValue::new(val)
                 .range(0.0..=f32::INFINITY)
-                .speed(0.00001)
-                .max_decimals(6),
+                .speed(0.01),
         );
+    });
+}
+
+fn ui_val_mm(ui: &mut egui::Ui, label: &str, val_m: &mut f64) {
+    let mut val_mm = *val_m * 1000.0;
+    ui.horizontal(|ui| {
+        ui.label(label);
+        if ui
+            .add(
+                egui::DragValue::new(&mut val_mm)
+                    .speed(0.01)
+                    .range(0.0..=f64::INFINITY),
+            )
+            .changed()
+        {
+            *val_m = val_mm / 1000.0;
+        }
     });
 }
 
@@ -61,11 +77,11 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                 roughness,
             } => {
                 ui_val(ui, "Длина (м):", length);
-                ui_val(ui, "Диаметр (м):", diameter);
-                ui_val(ui, "Шероховатость (м):", roughness);
+                ui_val_mm(ui, "Диаметр (мм):", diameter);
+                ui_val_mm(ui, "Шероховатость (мм):", roughness);
             }
             PipeNode::Fitting { diameter, zeta } => {
-                ui_val(ui, "Диаметр (м):", diameter);
+                ui_val_mm(ui, "Диаметр (мм):", diameter);
                 ui_val(ui, "Сопротивление (ξ):", zeta);
             }
             PipeNode::Pump { points } => {
@@ -75,7 +91,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                         ui.label(format!("{}: Q (м³/с):", i + 1));
                         ui.add(egui::DragValue::new(q).speed(0.00001).max_decimals(6));
                         ui.label("H (м):");
-                        ui.add(egui::DragValue::new(h).speed(0.00001).max_decimals(6));
+                        ui.add(egui::DragValue::new(h).speed(0.01));
                     });
                 }
             }
@@ -96,7 +112,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         _ui: &mut egui::Ui,
         _snarl: &mut Snarl<PipeNode>,
     ) -> PinInfo {
-        PinInfo::square().with_fill(egui::Color32::from_rgb(200, 50, 50))
+        PinInfo::square().with_fill(egui::Color32::RED)
     }
 
     // 1 выходной пин для каждого блока
@@ -110,7 +126,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         _ui: &mut egui::Ui,
         _snarl: &mut Snarl<PipeNode>,
     ) -> PinInfo {
-        PinInfo::triangle().with_fill(egui::Color32::from_rgb(50, 200, 50))
+        PinInfo::triangle().with_fill(egui::Color32::GREEN)
     }
 
     // Действия на элементе - пока только убрать
@@ -142,8 +158,8 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                 pos,
                 PipeNode::Pipe {
                     length: 1.0,
-                    diameter: 1.0,
-                    roughness: 0.1,
+                    diameter: 0.1,
+                    roughness: 0.0001,
                 },
             );
             ui.close();
@@ -152,7 +168,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
             snarl.insert_node(
                 pos,
                 PipeNode::Fitting {
-                    diameter: 1.0,
+                    diameter: 0.1,
                     zeta: 1.0,
                 },
             );
@@ -225,7 +241,7 @@ fn draw_results_table(ui: &mut egui::Ui, pipeline: &Component) {
                         ui.label(comp.type_name());
                     });
                     row.col(|ui| {
-                        ui.label(format!("{:.2}", comp.state.q));
+                        ui.label(format!("{:.4}", comp.state.q));
                     });
                     row.col(|ui| {
                         ui.label(format!("{:.1}", comp.state.p_in / 1000.0));
@@ -288,7 +304,7 @@ pub fn draw_hq_plot(ui: &mut egui::Ui, res: &CalculationResult, snarl: &Snarl<Pi
             Line::new("Кривая сети", PlotPoints::from(net_points)).color(egui::Color32::BLUE),
         );
 
-        // 2. Построение характеристики насоса (аппроксимация параболой)
+        // 2. Построение характеристики насоса
         for node in snarl.nodes() {
             if let PipeNode::Pump { points } = node {
                 let mut pts: Vec<[f64; 2]> = points.iter().map(|&(q, h)| [q, h]).collect();
@@ -311,28 +327,28 @@ pub fn draw_hq_plot(ui: &mut egui::Ui, res: &CalculationResult, snarl: &Snarl<Pi
                         dense_pump_pts.push([q, h]);
                     }
 
-                    // Плавная линия характеристики насоса
+                    // Линия характеристики насоса
                     plot_ui.line(
-                        Line::new("Насос (H-Q)", PlotPoints::from(dense_pump_pts))
+                        Line::new("Кривая насоса", PlotPoints::from(dense_pump_pts))
                             .color(egui::Color32::RED),
                     );
 
-                    // Опорные паспортные точки насоса
+                    // Опорные точки насоса
                     plot_ui.points(
-                        Points::new("Паспортные точки", PlotPoints::from(pts))
+                        Points::new("Точки насоса", PlotPoints::from(pts))
                             .radius(3.5)
                             .color(egui::Color32::RED),
                     );
                 } else {
                     plot_ui.line(
                         Line::new("Насос (ломаная)", PlotPoints::from(pts))
-                            .color(egui::Color32::from_rgb(50, 150, 250)),
+                            .color(egui::Color32::RED),
                     );
                 }
             }
         }
 
-        // 3. Рабочая точка (лежащая точно на характеристике сети)
+        // 3. Рабочая точка
         plot_ui.points(
             Points::new("Рабочая точка", PlotPoints::from(vec![[op_q, op_h]]))
                 .radius(5.0)
@@ -395,6 +411,8 @@ impl eframe::App for HydroApp {
                         Err(err) => self.calc_state = CalculationState::Error(err),
                     }
                 }
+
+                egui::widgets::global_theme_preference_buttons(ui);
             });
         });
 
@@ -404,9 +422,11 @@ impl eframe::App for HydroApp {
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.heading("Результаты");
-                        if ui.button("Закрыть").clicked() {
-                            self.calc_state = CalculationState::Idle;
-                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Закрыть").clicked() {
+                                self.calc_state = CalculationState::Idle;
+                            }
+                        });
                     });
                     ui.separator();
 
@@ -425,17 +445,27 @@ impl eframe::App for HydroApp {
                                 ui.label(format!("Статический напор: {:.2} м", res.h_static));
                                 ui.separator();
                                 ui.label(format!(
-                                    "Рабочая точка: Q = {:.2} м/с, H = {:.2} м",
+                                    "Рабочая точка: Q: {:.4} м³/с, H: {:.2} м",
                                     res.q_op, res.h_op
                                 ));
                                 ui.separator();
-                                ui.label(format!("P вх: {:.1} кПа", res.p_in / 1000.0));
+                                ui.label(format!("Входное давление: {:.1} кПа", res.p_in / 1000.0));
                             });
 
-                            draw_hq_plot(ui, res, &self.snarl);
+                            ui.separator();
 
-                            ui.add_space(8.0);
-                            draw_results_table(ui, &res.pipeline);
+                            ui.columns(2, |columns| {
+                                columns[0].vertical(|ui| {
+                                    draw_hq_plot(ui, res, &self.snarl);
+                                });
+
+                                columns[1].vertical(|ui| {
+                                    ui.label(egui::RichText::new("Состояние элементов"));
+                                    egui::ScrollArea::both().show(ui, |ui| {
+                                        draw_results_table(ui, &res.pipeline);
+                                    });
+                                });
+                            });
                         }
                     }
                 });
