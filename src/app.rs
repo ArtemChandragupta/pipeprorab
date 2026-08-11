@@ -51,13 +51,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
     }
 
     fn title(&mut self, node: &PipeNode) -> String {
-        match node {
-            PipeNode::Pump { .. } => "Насос".to_owned(),
-            PipeNode::Pipe { .. } => "Труба".to_owned(),
-            PipeNode::Fitting { .. } => "Местное сопротивление".to_owned(),
-            PipeNode::HeightDrop { .. } => "Перепад высоты".to_owned(),
-            PipeNode::PressureDrop { .. } => "Фикс. падение давления".to_owned(),
-        }
+        node.name().to_owned()
     }
 
     // Видимые тела блоков
@@ -72,35 +66,46 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         ui: &mut Ui,
         snarl: &mut Snarl<PipeNode>,
     ) {
-        ui.vertical(|ui| match &mut snarl[node] {
-            PipeNode::Pipe {
-                length,
-                diameter,
-                roughness,
-            } => {
-                ui_val(ui, "Длина (м):", length);
-                ui_val_mm(ui, "Диаметр (мм):", diameter);
-                ui_val_mm(ui, "Шероховатость (мм):", roughness);
-            }
-            PipeNode::Fitting { diameter, zeta } => {
-                ui_val_mm(ui, "Диаметр (мм):", diameter);
-                ui_val(ui, "Сопротивление (ξ):", zeta);
-            }
-            PipeNode::HeightDrop { delta_h } => {
-                ui_val(ui, "Δh (м):", delta_h);
-            }
-            PipeNode::PressureDrop { dp } => {
-                ui_val(ui, "ΔP (Па):", dp);
-            }
-            PipeNode::Pump { points } => {
-                ui.label("Рабочие точки:");
-                for (i, (q, h)) in points.iter_mut().enumerate() {
-                    ui.horizontal(|ui| {
-                        ui.label(format!("{}: Q (м³/с):", i + 1));
-                        ui.add(egui::DragValue::new(q).speed(0.00001).max_decimals(6));
-                        ui.label("H (м):");
-                        ui.add(egui::DragValue::new(h).speed(0.01));
-                    });
+        ui.set_max_width(180.0);
+
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                ui.label("Имя:");
+                ui.text_edit_singleline(snarl[node].name_mut());
+            });
+            ui.separator();
+
+            match &mut snarl[node] {
+                PipeNode::Pipe {
+                    length,
+                    diameter,
+                    roughness,
+                    ..
+                } => {
+                    ui_val(ui, "Длина (м):", length);
+                    ui_val_mm(ui, "Диаметр (мм):", diameter);
+                    ui_val_mm(ui, "Шероховатость (мм):", roughness);
+                }
+                PipeNode::Fitting { diameter, zeta, .. } => {
+                    ui_val_mm(ui, "Диаметр (мм):", diameter);
+                    ui_val(ui, "Сопротивление (ξ):", zeta);
+                }
+                PipeNode::HeightDrop { delta_h, .. } => {
+                    ui_val(ui, "Δh (м):", delta_h);
+                }
+                PipeNode::PressureDrop { dp, .. } => {
+                    ui_val(ui, "ΔP (Па):", dp);
+                }
+                PipeNode::Pump { points, .. } => {
+                    ui.label("Рабочие точки:");
+                    for (i, (q, h)) in points.iter_mut().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("{}: Q (м³/с):", i + 1));
+                            ui.add(egui::DragValue::new(q).speed(0.00001).max_decimals(6));
+                            ui.label("H (м):");
+                            ui.add(egui::DragValue::new(h).speed(0.01));
+                        });
+                    }
                 }
             }
         });
@@ -164,10 +169,13 @@ impl SnarlViewer<PipeNode> for PipeViewer {
     }
     fn show_graph_menu(&mut self, pos: egui::Pos2, ui: &mut Ui, snarl: &mut Snarl<PipeNode>) {
         ui.label("Добавить элемент");
+        let idx = snarl.node_ids().count() + 1;
+
         if ui.button("Труба").clicked() {
             snarl.insert_node(
                 pos,
                 PipeNode::Pipe {
+                    name: format!("Труба {idx}"),
                     length: 1.0,
                     diameter: 0.1,
                     roughness: 0.0001,
@@ -179,6 +187,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
             snarl.insert_node(
                 pos,
                 PipeNode::Fitting {
+                    name: format!("Местн. сопротивление {idx}"),
                     diameter: 0.1,
                     zeta: 1.0,
                 },
@@ -186,17 +195,30 @@ impl SnarlViewer<PipeNode> for PipeViewer {
             ui.close();
         }
         if ui.button("Перепад высоты").clicked() {
-            snarl.insert_node(pos, PipeNode::HeightDrop { delta_h: 1.0 });
+            snarl.insert_node(
+                pos,
+                PipeNode::HeightDrop {
+                    name: format!("Перепад высоты {idx}"),
+                    delta_h: 1.0,
+                },
+            );
             ui.close();
         }
         if ui.button("Падение давления").clicked() {
-            snarl.insert_node(pos, PipeNode::PressureDrop { dp: 1000.0 });
+            snarl.insert_node(
+                pos,
+                PipeNode::PressureDrop {
+                    name: format!("Падение давления {idx}"),
+                    dp: 1000.0,
+                },
+            );
             ui.close();
         }
         if ui.button("Насос").clicked() {
             snarl.insert_node(
                 pos,
                 PipeNode::Pump {
+                    name: format!("Насос"),
                     points: [(0.01, 20.0), (0.02, 15.0), (0.03, 5.0)],
                 },
             );
@@ -325,7 +347,7 @@ pub fn draw_hq_plot(ui: &mut egui::Ui, res: &CalculationResult, snarl: &Snarl<Pi
 
         // 2. Построение характеристики насоса
         for node in snarl.nodes() {
-            if let PipeNode::Pump { points } = node {
+            if let PipeNode::Pump { name, points } = node {
                 let mut pts: Vec<[f64; 2]> = points.iter().map(|&(q, h)| [q, h]).collect();
 
                 pts.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap());

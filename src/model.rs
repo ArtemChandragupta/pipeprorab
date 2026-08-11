@@ -13,23 +13,50 @@ const NU: f64 = 1e-6;
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub enum PipeNode {
     Pipe {
+        name: String,
         length: f64,
         diameter: f64,
         roughness: f64,
     },
     Fitting {
+        name: String,
         diameter: f64,
         zeta: f64,
     },
-    Pump {
-        points: [(f64, f64); 3],
-    },
     HeightDrop {
+        name: String,
         delta_h: f64,
     },
     PressureDrop {
+        name: String,
         dp: f64,
     },
+    Pump {
+        name: String,
+        points: [(f64, f64); 3],
+    },
+}
+
+impl PipeNode {
+    pub fn name(&self) -> &str {
+        match self {
+            PipeNode::Pipe { name, .. } => name,
+            PipeNode::Fitting { name, .. } => name,
+            PipeNode::HeightDrop { name, .. } => name,
+            PipeNode::PressureDrop { name, .. } => name,
+            PipeNode::Pump { name, .. } => name,
+        }
+    }
+
+    pub fn name_mut(&mut self) -> &mut String {
+        match self {
+            PipeNode::Pipe { name, .. } => name,
+            PipeNode::Fitting { name, .. } => name,
+            PipeNode::HeightDrop { name, .. } => name,
+            PipeNode::PressureDrop { name, .. } => name,
+            PipeNode::Pump { name, .. } => name,
+        }
+    }
 }
 
 // --- СТРУКТУРЫ ДЛЯ РАСЧЕТА ---
@@ -245,7 +272,7 @@ fn build_model(snarl: &Snarl<PipeNode>) -> Result<([[f64; 2]; 3], Component), &'
     let (pump_node, pump_points) = snarl
         .node_ids()
         .find_map(|(id, n)| {
-            if let PipeNode::Pump { points } = n {
+            if let PipeNode::Pump { name, points } = n {
                 Some((
                     id,
                     [
@@ -320,30 +347,35 @@ fn build_model(snarl: &Snarl<PipeNode>) -> Result<([[f64; 2]; 3], Component), &'
         while Some(curr) != end_at {
             match &snarl[curr] {
                 PipeNode::Pipe {
+                    name,
                     length,
                     diameter,
                     roughness,
                 } => elems.push(Component::new(
-                    format!("Труба L={length:.1} D={diameter:.3}"),
+                    name.clone(),
                     ElementKind::Pipe {
                         l: *length,
                         d: *diameter,
                         r: *roughness,
                     },
                 )),
-                PipeNode::Fitting { diameter, zeta } => elems.push(Component::new(
-                    format!("МС D={diameter:.3} ξ={zeta:.2}"),
+                PipeNode::Fitting {
+                    name,
+                    diameter,
+                    zeta,
+                } => elems.push(Component::new(
+                    name.clone(),
                     ElementKind::Fitting {
                         d: *diameter,
                         zeta: *zeta,
                     },
                 )),
-                PipeNode::HeightDrop { delta_h } => elems.push(Component::new(
-                    format!("Перепад высоты Δh={delta_h:.2} м"),
+                PipeNode::HeightDrop { name, delta_h } => elems.push(Component::new(
+                    name.clone(),
                     ElementKind::HeightDrop { delta_h: *delta_h },
                 )),
-                PipeNode::PressureDrop { dp } => elems.push(Component::new(
-                    format!("Падение давления ΔP={dp:.0} Па"),
+                PipeNode::PressureDrop { name, dp } => elems.push(Component::new(
+                    name.clone(),
                     ElementKind::PressureDrop { dp: *dp },
                 )),
                 PipeNode::Pump { .. } => {}
