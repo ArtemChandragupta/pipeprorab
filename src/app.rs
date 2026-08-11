@@ -55,6 +55,8 @@ impl SnarlViewer<PipeNode> for PipeViewer {
             PipeNode::Pump { .. } => "Насос".to_owned(),
             PipeNode::Pipe { .. } => "Труба".to_owned(),
             PipeNode::Fitting { .. } => "Местное сопротивление".to_owned(),
+            PipeNode::HeightDrop { .. } => "Перепад высоты".to_owned(),
+            PipeNode::PressureDrop { .. } => "Фикс. падение давления".to_owned(),
         }
     }
 
@@ -84,6 +86,12 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                 ui_val_mm(ui, "Диаметр (мм):", diameter);
                 ui_val(ui, "Сопротивление (ξ):", zeta);
             }
+            PipeNode::HeightDrop { delta_h } => {
+                ui_val(ui, "Δh (м):", delta_h);
+            }
+            PipeNode::PressureDrop { dp } => {
+                ui_val(ui, "ΔP (Па):", dp);
+            }
             PipeNode::Pump { points } => {
                 ui.label("Рабочие точки:");
                 for (i, (q, h)) in points.iter_mut().enumerate() {
@@ -102,7 +110,10 @@ impl SnarlViewer<PipeNode> for PipeViewer {
     fn inputs(&mut self, node: &PipeNode) -> usize {
         match node {
             PipeNode::Pump { .. } => 0,
-            PipeNode::Pipe { .. } | PipeNode::Fitting { .. } => 1,
+            PipeNode::Pipe { .. }
+            | PipeNode::Fitting { .. }
+            | PipeNode::HeightDrop { .. }
+            | PipeNode::PressureDrop { .. } => 1,
         }
     }
     #[allow(refining_impl_trait)]
@@ -172,6 +183,14 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                     zeta: 1.0,
                 },
             );
+            ui.close();
+        }
+        if ui.button("Перепад высоты").clicked() {
+            snarl.insert_node(pos, PipeNode::HeightDrop { delta_h: 1.0 });
+            ui.close();
+        }
+        if ui.button("Падение давления").clicked() {
+            snarl.insert_node(pos, PipeNode::PressureDrop { dp: 1000.0 });
             ui.close();
         }
         if ui.button("Насос").clicked() {
@@ -412,7 +431,13 @@ impl eframe::App for HydroApp {
                     }
                 }
 
-                egui::widgets::global_theme_preference_buttons(ui);
+                if ui.button("Сменить тему").clicked() {
+                    if ui.visuals().dark_mode {
+                        ui.ctx().set_visuals(egui::Visuals::light());
+                    } else {
+                        ui.ctx().set_visuals(egui::Visuals::dark());
+                    }
+                }
             });
         });
 

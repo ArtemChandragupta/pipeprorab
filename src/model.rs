@@ -24,6 +24,12 @@ pub enum PipeNode {
     Pump {
         points: [(f64, f64); 3],
     },
+    HeightDrop {
+        delta_h: f64,
+    },
+    PressureDrop {
+        dp: f64,
+    },
 }
 
 // --- СТРУКТУРЫ ДЛЯ РАСЧЕТА ---
@@ -49,6 +55,8 @@ pub struct Component {
 pub enum ElementKind {
     Pipe { l: f64, d: f64, r: f64 },
     Fitting { d: f64, zeta: f64 },
+    HeightDrop { delta_h: f64 },
+    PressureDrop { dp: f64 },
     Series(Vec<Component>),
     Parallel(Vec<Component>),
 }
@@ -66,6 +74,8 @@ impl Component {
         match self.kind {
             ElementKind::Pipe { .. } => "pipe",
             ElementKind::Fitting { .. } => "fitting",
+            ElementKind::HeightDrop { .. } => "height_drop",
+            ElementKind::PressureDrop { .. } => "pressure_drop",
             ElementKind::Series(_) => "series",
             ElementKind::Parallel(_) => "parallel",
         }
@@ -106,6 +116,8 @@ fn get_static_pressure(comp: &Component) -> f64 {
     match &comp.kind {
         ElementKind::Series(elems) => elems.iter().map(get_static_pressure).sum(),
         ElementKind::Parallel(branches) => branches.first().map_or(0.0, get_static_pressure),
+        ElementKind::HeightDrop { delta_h } => *delta_h * RHO * G_GRAV,
+        ElementKind::PressureDrop { dp } => *dp,
         _ => 0.0,
     }
 }
@@ -128,6 +140,7 @@ fn update_k(comp: &mut Component, q_in: f64) -> f64 {
             (8.0 * lam * *l * RHO) / (PI.powi(2) * d.powi(5))
         }
         ElementKind::Fitting { d, zeta } => (8.0 * *zeta * RHO) / (PI.powi(2) * d.powi(4)),
+        ElementKind::HeightDrop { .. } | ElementKind::PressureDrop { .. } => 0.0,
         ElementKind::Series(elems) => elems.iter_mut().map(|e| update_k(e, q)).sum(),
         ElementKind::Parallel(branches) => {
             let inv_sqrts: Vec<f64> = branches
@@ -167,6 +180,8 @@ fn calc_flow_pressure(comp: &mut Component, q_in: f64, p_in: f64) -> f64 {
 
     let p_out = match &mut comp.kind {
         ElementKind::Pipe { .. } | ElementKind::Fitting { .. } => p_in - k * q_in.powi(2),
+        ElementKind::HeightDrop { delta_h } => p_in - RHO * G_GRAV * (*delta_h),
+        ElementKind::PressureDrop { dp } => p_in - (*dp),
         ElementKind::Series(elems) => elems
             .iter_mut()
             .fold(p_in, |p, e| calc_flow_pressure(e, q_in, p)),
@@ -189,11 +204,7 @@ fn calc_flow_pressure(comp: &mut Component, q_in: f64, p_in: f64) -> f64 {
 
             for (b, &inv) in branches.iter_mut().zip(&invs) {
                 let share = if has_inf {
-                    if inv == f64::INFINITY {
-                        1.0
-                    } else {
-                        0.0
-                    }
+                    if inv == f64::INFINITY { 1.0 } else { 0.0 }
                 } else {
                     inv / total_inv
                 };
@@ -326,6 +337,14 @@ fn build_model(snarl: &Snarl<PipeNode>) -> Result<([[f64; 2]; 3], Component), &'
                         d: *diameter,
                         zeta: *zeta,
                     },
+                )),
+                PipeNode::HeightDrop { delta_h } => elems.push(Component::new(
+                    format!("Перепад высоты Δh={delta_h:.2} м"),
+                    ElementKind::HeightDrop { delta_h: *delta_h },
+                )),
+                PipeNode::PressureDrop { dp } => elems.push(Component::new(
+                    format!("Падение давления ΔP={dp:.0} Па"),
+                    ElementKind::PressureDrop { dp: *dp },
                 )),
                 PipeNode::Pump { .. } => {}
             }
