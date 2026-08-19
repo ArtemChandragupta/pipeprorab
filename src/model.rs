@@ -272,7 +272,7 @@ fn build_model(snarl: &Snarl<PipeNode>) -> Result<([[f64; 2]; 3], Component), &'
     let (pump_node, pump_points) = snarl
         .node_ids()
         .find_map(|(id, n)| {
-            if let PipeNode::Pump { name, points } = n {
+            if let PipeNode::Pump { name: _, points } = n {
                 Some((
                     id,
                     [

@@ -218,7 +218,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
             snarl.insert_node(
                 pos,
                 PipeNode::Pump {
-                    name: format!("Насос"),
+                    name: "Насос".to_owned(),
                     points: [(0.01, 20.0), (0.02, 15.0), (0.03, 5.0)],
                 },
             );
@@ -347,7 +347,7 @@ pub fn draw_hq_plot(ui: &mut egui::Ui, res: &CalculationResult, snarl: &Snarl<Pi
 
         // 2. Построение характеристики насоса
         for node in snarl.nodes() {
-            if let PipeNode::Pump { name, points } = node {
+            if let PipeNode::Pump { name: _, points } = node {
                 let mut pts: Vec<[f64; 2]> = points.iter().map(|&(q, h)| [q, h]).collect();
 
                 pts.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap());
