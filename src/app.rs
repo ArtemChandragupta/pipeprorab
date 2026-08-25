@@ -414,6 +414,7 @@ pub struct HydroApp {
     filename: String,
     calc_state: CalculationState,
     doc_widget: DocWidget,
+    show_overwrite_dialog: bool,
 }
 
 impl Default for HydroApp {
@@ -421,30 +422,65 @@ impl Default for HydroApp {
         Self {
             snarl: Snarl::new(),
             style: SnarlStyle::default(),
-            filename: "NewPipeline.json".to_owned(),
+            filename: "NewPipeline".to_owned(),
             calc_state: CalculationState::Idle,
             doc_widget: DocWidget::default(),
+            show_overwrite_dialog: false,
         }
     }
 }
 
 impl eframe::App for HydroApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if self.show_overwrite_dialog {
+            let full_path = format!("{}.json", self.filename);
+            egui::Window::new("Внимание")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ui.ctx(), |ui| {
+                    ui.label(format!("Файл «{}» уже существует.", full_path));
+                    ui.label("Перезаписать существующий файл или переименовать текущий?");
+
+                    ui.add_space(8.0);
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Перезаписать").clicked() {
+                            if let Ok(s) = serde_json::to_string_pretty(&self.snarl) {
+                                let _ = std::fs::write(&full_path, s);
+                            }
+                            self.show_overwrite_dialog = false;
+                        }
+
+                        if ui.button("Переименовать").clicked() {
+                            self.show_overwrite_dialog = false;
+                        }
+                    });
+                });
+        }
+
         egui::Panel::top("top_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("Файл:");
                 ui.add(egui::TextEdit::singleline(&mut self.filename).desired_width(150.0));
 
-                if ui.button("Сохранить JSON").clicked()
-                    && let Ok(s) = serde_json::to_string_pretty(&self.snarl)
-                {
-                    let _ = std::fs::write(&self.filename, s);
-                }
+                let full_path = format!("{}.json", self.filename);
+
                 if ui.button("Загрузить JSON").clicked()
-                    && let Ok(s) = std::fs::read_to_string(&self.filename)
+                    && let Ok(s) = std::fs::read_to_string(&full_path)
                     && let Ok(snarl) = serde_json::from_str(&s)
                 {
                     self.snarl = snarl;
+                }
+
+                if ui.button("Сохранить JSON").clicked() {
+                    if std::path::Path::new(&full_path).exists() {
+                        self.show_overwrite_dialog = true;
+                    } else {
+                        if let Ok(s) = serde_json::to_string_pretty(&self.snarl) {
+                            let _ = std::fs::write(&full_path, s);
+                        }
+                    }
                 }
 
                 ui.separator();
