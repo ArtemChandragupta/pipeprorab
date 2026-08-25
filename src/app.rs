@@ -346,7 +346,7 @@ pub fn draw_hq_plot(ui: &mut egui::Ui, res: &CalculationResult, snarl: &Snarl<Pi
             Line::new("Кривая сети", PlotPoints::from(net_points)).color(egui::Color32::BLUE),
         );
 
-        // 2. Построение характеристики насоса
+        // 2. Построение характеристики насоса по трем точкам
         for node in snarl.nodes() {
             if let PipeNode::Pump { name: _, points } = node {
                 let mut pts: Vec<[f64; 2]> = points.iter().map(|&(q, h)| [q, h]).collect();
@@ -354,7 +354,6 @@ pub fn draw_hq_plot(ui: &mut egui::Ui, res: &CalculationResult, snarl: &Snarl<Pi
                 pts.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap());
 
                 if pts.len() >= 3 {
-                    // Строим плавную параболу по первым трем точкам
                     let p0 = pts[0];
                     let p1 = pts[1];
                     let p2 = pts[2];
