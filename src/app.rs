@@ -5,6 +5,7 @@ use egui_snarl::{
     InPin, NodeId, OutPin, Snarl,
     ui::{PinInfo, SnarlStyle, SnarlViewer},
 };
+use rust_xlsxwriter::{Color, Format, Workbook, XlsxError};
 
 use crate::docs::DocWidget;
 use crate::model::{
@@ -398,6 +399,49 @@ pub fn draw_hq_plot(ui: &mut egui::Ui, res: &CalculationResult, snarl: &Snarl<Pi
     });
 }
 
+fn export_to_excel(res: &CalculationResult, filename: &str) -> Result<(), XlsxError> {
+    let mut workbook = Workbook::new();
+    let worksheet = workbook.add_worksheet();
+    worksheet.set_name("Результаты")?;
+
+    let header_format = Format::new().set_bold().set_background_color(Color::Silver);
+
+    let headers = [
+        "Элемент",
+        "Тип",
+        "Расход (м³/с)",
+        "P вх (кПа)",
+        "P вых (кПа)",
+        "dP (кПа)",
+    ];
+
+    for (col, &header) in headers.iter().enumerate() {
+        worksheet.write_string_with_format(0, col as u16, header, &header_format)?;
+    }
+
+    let mut flat_tree = Vec::new();
+    flatten_pipeline(&res.pipeline, 0, &mut flat_tree);
+
+    for (row, (depth, comp)) in flat_tree.iter().enumerate() {
+        let row_idx = (row + 1) as u32;
+
+        let indent = "    ".repeat(*depth);
+        let name_with_indent = format!("{}{}", indent, comp.name);
+
+        worksheet.write_string(row_idx, 0, name_with_indent)?;
+        worksheet.write_string(row_idx, 1, comp.type_name())?;
+        worksheet.write_number(row_idx, 2, comp.state.q)?;
+        worksheet.write_number(row_idx, 3, comp.state.p_in / 1000.0)?;
+        worksheet.write_number(row_idx, 4, comp.state.p_out / 1000.0)?;
+
+        let dp = (comp.state.p_in - comp.state.p_out) / 1000.0;
+        worksheet.write_number(row_idx, 5, dp)?;
+    }
+
+    workbook.save(filename)?;
+    Ok(())
+}
+
 // Состояние приложения - граф, имя файла и результат(ошибка)
 #[derive(Default)]
 enum CalculationState {
@@ -488,10 +532,11 @@ impl eframe::App for HydroApp {
                 ui.heading("Файл:");
                 ui.add(egui::TextEdit::singleline(&mut self.filename).desired_width(150.0));
 
-                let full_path = format!("{}.json", self.filename);
+                let json_path = format!("{}.json", self.filename);
+                let xlsx_path = format!("{}.xlsx", self.filename);
 
                 if ui.button("Загрузить JSON").clicked() {
-                    match std::fs::read_to_string(&full_path) {
+                    match std::fs::read_to_string(&json_path) {
                         Ok(s) => match serde_json::from_str(&s) {
                             Ok(snarl) => {
                                 self.snarl = snarl;
@@ -508,7 +553,7 @@ impl eframe::App for HydroApp {
                             if err.kind() == std::io::ErrorKind::NotFound {
                                 self.load_error_message = Some(format!(
                                     "Файл «{}» не найден в корневой папке.",
-                                    full_path
+                                    json_path
                                 ));
                             } else {
                                 self.load_error_message =
@@ -519,13 +564,20 @@ impl eframe::App for HydroApp {
                 }
 
                 if ui.button("Сохранить JSON").clicked() {
-                    if std::path::Path::new(&full_path).exists() {
+                    if std::path::Path::new(&json_path).exists() {
                         self.show_overwrite_dialog = true;
                     } else {
                         if let Ok(s) = serde_json::to_string_pretty(&self.snarl) {
-                            let _ = std::fs::write(&full_path, s);
+                            let _ = std::fs::write(&json_path, s);
                         }
                     }
+                }
+
+                if let CalculationState::Success(res) = &self.calc_state
+                    && ui.button("Экспорт в Excel").clicked()
+                    && let Err(err) = export_to_excel(res, &xlsx_path)
+                {
+                    eprintln!("Ошибка экспорта в Excel: {err}");
                 }
 
                 ui.separator();
