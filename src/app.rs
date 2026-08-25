@@ -415,6 +415,7 @@ pub struct HydroApp {
     calc_state: CalculationState,
     doc_widget: DocWidget,
     show_overwrite_dialog: bool,
+    load_error_message: Option<String>,
 }
 
 impl Default for HydroApp {
@@ -426,6 +427,7 @@ impl Default for HydroApp {
             calc_state: CalculationState::Idle,
             doc_widget: DocWidget::default(),
             show_overwrite_dialog: false,
+            load_error_message: None,
         }
     }
 }
@@ -459,6 +461,29 @@ impl eframe::App for HydroApp {
                 });
         }
 
+        if self.load_error_message.is_some() {
+            let mut close_error = false;
+            egui::Window::new("Ошибка загрузки")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ui.ctx(), |ui| {
+                    ui.label(self.load_error_message.as_ref().unwrap());
+
+                    ui.add_space(8.0);
+
+                    ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                        if ui.button("ОК").clicked() {
+                            close_error = true;
+                        }
+                    });
+                });
+
+            if close_error {
+                self.load_error_message = None;
+            }
+        }
+
         egui::Panel::top("top_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("Файл:");
@@ -466,11 +491,32 @@ impl eframe::App for HydroApp {
 
                 let full_path = format!("{}.json", self.filename);
 
-                if ui.button("Загрузить JSON").clicked()
-                    && let Ok(s) = std::fs::read_to_string(&full_path)
-                    && let Ok(snarl) = serde_json::from_str(&s)
-                {
-                    self.snarl = snarl;
+                if ui.button("Загрузить JSON").clicked() {
+                    match std::fs::read_to_string(&full_path) {
+                        Ok(s) => match serde_json::from_str(&s) {
+                            Ok(snarl) => {
+                                self.snarl = snarl;
+                                self.load_error_message = None;
+                            }
+                            Err(err) => {
+                                self.load_error_message = Some(format!(
+                                    "Файл повреждён или имеет неверный формат:\n{}",
+                                    err
+                                ));
+                            }
+                        },
+                        Err(err) => {
+                            if err.kind() == std::io::ErrorKind::NotFound {
+                                self.load_error_message = Some(format!(
+                                    "Файл «{}» не найден в корневой папке.",
+                                    full_path
+                                ));
+                            } else {
+                                self.load_error_message =
+                                    Some(format!("Ошибка чтения файла:\n{}", err));
+                            }
+                        }
+                    }
                 }
 
                 if ui.button("Сохранить JSON").clicked() {
