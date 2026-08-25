@@ -1,4 +1,5 @@
 mod app;
+mod docs;
 mod model;
 
 use app::HydroApp;
