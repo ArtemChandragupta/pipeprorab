@@ -398,6 +398,69 @@ pub fn draw_hq_plot(ui: &mut egui::Ui, res: &CalculationResult, snarl: &Snarl<Pi
     });
 }
 
+// Структура для виджета документации и дефолтное состояние
+#[derive(Default)]
+pub struct DocWidget {
+    pub is_open: bool,
+    selected_section: DocSection,
+}
+
+// Секции докумментации
+#[derive(PartialEq, Eq, Default)]
+pub enum DocSection {
+    #[default]
+    Overview,
+    Principles,
+    Blocks,
+}
+
+impl DocWidget {
+    fn render_docs(&mut self, ui: &mut egui::Ui) {
+        egui::Panel::left("doc_sidebar")
+            .resizable(true)
+            .default_size(180.0)
+            .size_range(120.0..=300.0)
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("doc_sidebar_scroll")
+                    .show(ui, |ui| {
+                        ui.heading("Разделы");
+                        ui.add_space(8.0);
+
+                        ui.selectable_value(
+                            &mut self.selected_section,
+                            DocSection::Overview,
+                            "Обзор",
+                        );
+                        ui.selectable_value(
+                            &mut self.selected_section,
+                            DocSection::Principles,
+                            "Принцип работы",
+                        );
+                        ui.selectable_value(
+                            &mut self.selected_section,
+                            DocSection::Blocks,
+                            "Компоненты",
+                        );
+                    });
+            });
+
+        egui::CentralPanel::default().show(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt("doc_content_scroll")
+                .show(ui, |ui| match self.selected_section {
+                    DocSection::Overview => {
+                        ui.heading("Обзор системы");
+                        ui.add_space(8.0);
+                        ui.label("Это модуль документации");
+                    }
+                    DocSection::Principles => {}
+                    DocSection::Blocks => {}
+                });
+        });
+    }
+}
+
 // Состояние приложения - граф, имя файла и результат(ошибка)
 #[derive(Default)]
 enum CalculationState {
@@ -412,6 +475,7 @@ pub struct HydroApp {
     style: SnarlStyle,
     filename: String,
     calc_state: CalculationState,
+    doc_widget: DocWidget,
 }
 
 impl Default for HydroApp {
@@ -421,6 +485,7 @@ impl Default for HydroApp {
             style: SnarlStyle::default(),
             filename: "NewPipeline.json".to_owned(),
             calc_state: CalculationState::Idle,
+            doc_widget: DocWidget::default(),
         }
     }
 }
@@ -453,12 +518,18 @@ impl eframe::App for HydroApp {
                     }
                 }
 
+                ui.separator();
+
                 if ui.button("Сменить тему").clicked() {
                     if ui.visuals().dark_mode {
                         ui.ctx().set_visuals(egui::Visuals::light());
                     } else {
                         ui.ctx().set_visuals(egui::Visuals::dark());
                     }
+                }
+
+                if ui.button("Справка").clicked() {
+                    self.doc_widget.is_open = !self.doc_widget.is_open;
                 }
             });
         });
@@ -519,8 +590,12 @@ impl eframe::App for HydroApp {
         }
 
         egui::CentralPanel::default().show(ui, |ui| {
-            let id = ui.make_persistent_id("snarl_editor");
-            self.snarl.show(&mut PipeViewer, &self.style, id, ui);
+            if self.doc_widget.is_open {
+                self.doc_widget.render_docs(ui);
+            } else {
+                let id = ui.make_persistent_id("snarl_editor");
+                self.snarl.show(&mut PipeViewer, &self.style, id, ui);
+            }
         });
     }
 }
