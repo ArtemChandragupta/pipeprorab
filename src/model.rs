@@ -413,10 +413,7 @@ fn build_model(snarl: &Snarl<PipeNode>) -> Result<([[f64; 2]; 3], Component), &'
         elems
     }
 
-    let initial = adj
-        .get(&pump_node)
-        .and_then(|n| n.first())
-        .map_or(vec![], |&start| process_chain(start, None, snarl, &adj));
+    let initial = process_chain(pump_node, None, snarl, &adj);
     Ok((
         pump_points,
         Component::new("Магистраль", ElementKind::Series(initial)),
