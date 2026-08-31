@@ -16,26 +16,20 @@
         devShells.default = mkShell rec {
           buildInputs = [
             # Rust
-            rust-bin.stable.latest.default
+            (rust-bin.stable.latest.default.override {
+              targets = [ "x86_64-pc-windows-gnu" ];
+            })
 
-            # misc. libraries
-            # openssl
+            # Windows libs
+            pkgsCross.mingwW64.stdenv.cc
+            pkgsCross.mingwW64.windows.pthreads
+
+            # linux libraries
             pkg-config
-
-            # GUI libs
             libxkbcommon
             libGL
             fontconfig
-
-            # wayland libraries
             wayland
-
-            # x11 libraries
-            # xorg.libXcursor
-            # xorg.libXrandr
-            # xorg.libXi
-            # xorg.libX11
-
           ];
 
           LD_LIBRARY_PATH = "${lib.makeLibraryPath buildInputs}";
