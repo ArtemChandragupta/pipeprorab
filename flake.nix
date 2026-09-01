@@ -24,7 +24,7 @@
             pkgsCross.mingwW64.stdenv.cc
             pkgsCross.mingwW64.windows.pthreads
 
-            # linux libraries
+            # linux libs
             pkg-config
             libxkbcommon
             libGL
