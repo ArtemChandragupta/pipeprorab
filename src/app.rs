@@ -9,7 +9,8 @@ use rust_xlsxwriter::{Color, Format, Workbook, XlsxError};
 
 use crate::docs::DocWidget;
 use crate::model::{
-    CalculationResult, Component, ElementKind, G_GRAV, PipeNode, RHO, calculate_pipeline,
+    CalculationResult, Component, ElementKind, G_GRAV, PipeNode, PipeNodeKind, RHO,
+    calculate_pipeline,
 };
 
 // Слайдеры и поля для значения в виде-графе
@@ -53,7 +54,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
     }
 
     fn title(&mut self, node: &PipeNode) -> String {
-        node.name().to_owned()
+        node.name.to_owned()
     }
 
     // Видимые тела блоков
@@ -73,12 +74,12 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
                 ui.label("Имя:");
-                ui.text_edit_singleline(snarl[node].name_mut());
+                ui.text_edit_singleline(&mut snarl[node].name);
             });
             ui.separator();
 
-            match &mut snarl[node] {
-                PipeNode::Pipe {
+            match &mut snarl[node].kind {
+                PipeNodeKind::Pipe {
                     length,
                     diameter,
                     roughness,
@@ -88,17 +89,17 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                     ui_val_mm(ui, "Диаметр (мм):", diameter);
                     ui_val_mm(ui, "Шероховатость (мм):", roughness);
                 }
-                PipeNode::Fitting { diameter, zeta, .. } => {
+                PipeNodeKind::Fitting { diameter, zeta, .. } => {
                     ui_val_mm(ui, "Диаметр (мм):", diameter);
                     ui_val(ui, "Сопротивление (ξ):", zeta);
                 }
-                PipeNode::HeightDrop { delta_h, .. } => {
+                PipeNodeKind::HeightDrop { delta_h, .. } => {
                     ui_val(ui, "Δh (м):", delta_h);
                 }
-                PipeNode::PressureDrop { dp, .. } => {
+                PipeNodeKind::PressureDrop { dp, .. } => {
                     ui_val(ui, "ΔP (Па):", dp);
                 }
-                PipeNode::Pump { points, .. } => {
+                PipeNodeKind::Pump { points, .. } => {
                     ui.label("Рабочие точки:");
                     for (i, (q, h)) in points.iter_mut().enumerate() {
                         ui.horizontal(|ui| {
@@ -115,12 +116,9 @@ impl SnarlViewer<PipeNode> for PipeViewer {
 
     // 1 входной пин для каждого блока кроме насоса
     fn inputs(&mut self, node: &PipeNode) -> usize {
-        match node {
-            PipeNode::Pump { .. } => 0,
-            PipeNode::Pipe { .. }
-            | PipeNode::Fitting { .. }
-            | PipeNode::HeightDrop { .. }
-            | PipeNode::PressureDrop { .. } => 1,
+        match &node.kind {
+            PipeNodeKind::Pump { .. } => 0,
+            _ => 1,
         }
     }
     #[allow(refining_impl_trait)]
@@ -176,11 +174,13 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         if ui.button("Труба").clicked() {
             snarl.insert_node(
                 pos,
-                PipeNode::Pipe {
+                PipeNode {
                     name: format!("Труба {idx}"),
-                    length: 1.0,
-                    diameter: 0.1,
-                    roughness: 0.0001,
+                    kind: PipeNodeKind::Pipe {
+                        length: 1.0,
+                        diameter: 0.1,
+                        roughness: 0.0001,
+                    },
                 },
             );
             ui.close();
@@ -188,10 +188,12 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         if ui.button("Местное сопротивление").clicked() {
             snarl.insert_node(
                 pos,
-                PipeNode::Fitting {
+                PipeNode {
                     name: format!("Местн. сопротивление {idx}"),
-                    diameter: 0.1,
-                    zeta: 1.0,
+                    kind: PipeNodeKind::Fitting {
+                        diameter: 0.1,
+                        zeta: 1.0,
+                    },
                 },
             );
             ui.close();
@@ -199,9 +201,9 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         if ui.button("Перепад высоты").clicked() {
             snarl.insert_node(
                 pos,
-                PipeNode::HeightDrop {
+                PipeNode {
                     name: format!("Перепад высоты {idx}"),
-                    delta_h: 1.0,
+                    kind: PipeNodeKind::HeightDrop { delta_h: 1.0 },
                 },
             );
             ui.close();
@@ -209,9 +211,9 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         if ui.button("Падение давления").clicked() {
             snarl.insert_node(
                 pos,
-                PipeNode::PressureDrop {
+                PipeNode {
                     name: format!("Падение давления {idx}"),
-                    dp: 1000.0,
+                    kind: PipeNodeKind::PressureDrop { dp: 1000.0 },
                 },
             );
             ui.close();
@@ -219,9 +221,11 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         if ui.button("Насос").clicked() {
             snarl.insert_node(
                 pos,
-                PipeNode::Pump {
+                PipeNode {
                     name: "Насос".to_owned(),
-                    points: [(0.01, 20.0), (0.02, 15.0), (0.03, 5.0)],
+                    kind: PipeNodeKind::Pump {
+                        points: [(0.01, 20.0), (0.02, 15.0), (0.03, 5.0)],
+                    },
                 },
             );
             ui.close();
@@ -349,7 +353,7 @@ pub fn draw_hq_plot(ui: &mut egui::Ui, res: &CalculationResult, snarl: &Snarl<Pi
 
         // 2. Построение характеристики насоса по трем точкам
         for node in snarl.nodes() {
-            if let PipeNode::Pump { name: _, points } = node {
+            if let PipeNodeKind::Pump { points } = &node.kind {
                 let mut pts: Vec<[f64; 2]> = points.iter().map(|&(q, h)| [q, h]).collect();
 
                 pts.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap());

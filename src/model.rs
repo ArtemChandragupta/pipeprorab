@@ -1,4 +1,5 @@
 use egui_snarl::{NodeId, Snarl};
+use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -9,54 +10,35 @@ pub const G_GRAV: f64 = 9.81;
 pub const RHO: f64 = 1000.0;
 const NU: f64 = 1e-6;
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct PipeNode {
+    pub name: String,
+    #[serde(flatten)]
+    pub kind: PipeNodeKind,
+}
+
 // Структура для графического отображения - с неё всё начинается
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-pub enum PipeNode {
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum PipeNodeKind {
     Pipe {
-        name: String,
         length: f64,
         diameter: f64,
         roughness: f64,
     },
     Fitting {
-        name: String,
         diameter: f64,
         zeta: f64,
     },
     HeightDrop {
-        name: String,
         delta_h: f64,
     },
     PressureDrop {
-        name: String,
         dp: f64,
     },
     Pump {
-        name: String,
         points: [(f64, f64); 3],
     },
-}
-
-impl PipeNode {
-    pub fn name(&self) -> &str {
-        match self {
-            PipeNode::Pipe { name, .. } => name,
-            PipeNode::Fitting { name, .. } => name,
-            PipeNode::HeightDrop { name, .. } => name,
-            PipeNode::PressureDrop { name, .. } => name,
-            PipeNode::Pump { name, .. } => name,
-        }
-    }
-
-    pub fn name_mut(&mut self) -> &mut String {
-        match self {
-            PipeNode::Pipe { name, .. } => name,
-            PipeNode::Fitting { name, .. } => name,
-            PipeNode::HeightDrop { name, .. } => name,
-            PipeNode::PressureDrop { name, .. } => name,
-            PipeNode::Pump { name, .. } => name,
-        }
-    }
 }
 
 // --- СТРУКТУРЫ ДЛЯ РАСЧЕТА ---
@@ -272,7 +254,7 @@ fn build_model(snarl: &Snarl<PipeNode>) -> Result<([[f64; 2]; 3], Component), &'
     let (pump_node, pump_points) = snarl
         .node_ids()
         .find_map(|(id, n)| {
-            if let PipeNode::Pump { name: _, points } = n {
+            if let PipeNodeKind::Pump { points } = &n.kind {
                 Some((
                     id,
                     [
@@ -345,41 +327,32 @@ fn build_model(snarl: &Snarl<PipeNode>) -> Result<([[f64; 2]; 3], Component), &'
     ) -> Vec<Component> {
         let mut elems = Vec::new();
         while Some(curr) != end_at {
-            match &snarl[curr] {
-                PipeNode::Pipe {
-                    name,
+            let node = &snarl[curr];
+            let elem_kind = match &node.kind {
+                PipeNodeKind::Pipe {
                     length,
                     diameter,
                     roughness,
-                } => elems.push(Component::new(
-                    name.clone(),
-                    ElementKind::Pipe {
-                        l: *length,
-                        d: *diameter,
-                        r: *roughness,
-                    },
-                )),
-                PipeNode::Fitting {
-                    name,
-                    diameter,
-                    zeta,
-                } => elems.push(Component::new(
-                    name.clone(),
-                    ElementKind::Fitting {
-                        d: *diameter,
-                        zeta: *zeta,
-                    },
-                )),
-                PipeNode::HeightDrop { name, delta_h } => elems.push(Component::new(
-                    name.clone(),
-                    ElementKind::HeightDrop { delta_h: *delta_h },
-                )),
-                PipeNode::PressureDrop { name, dp } => elems.push(Component::new(
-                    name.clone(),
-                    ElementKind::PressureDrop { dp: *dp },
-                )),
-                PipeNode::Pump { .. } => {}
+                } => Some(ElementKind::Pipe {
+                    l: *length,
+                    d: *diameter,
+                    r: *roughness,
+                }),
+                PipeNodeKind::Fitting { diameter, zeta } => Some(ElementKind::Fitting {
+                    d: *diameter,
+                    zeta: *zeta,
+                }),
+                PipeNodeKind::HeightDrop { delta_h } => {
+                    Some(ElementKind::HeightDrop { delta_h: *delta_h })
+                }
+                PipeNodeKind::PressureDrop { dp } => Some(ElementKind::PressureDrop { dp: *dp }),
+                PipeNodeKind::Pump { .. } => None,
+            };
+
+            if let Some(kind) = elem_kind {
+                elems.push(Component::new(node.name.clone(), kind));
             }
+
             match adj.get(&curr).map(|v| v.as_slice()) {
                 Some([next]) => curr = *next,
                 Some(nexts) => {
