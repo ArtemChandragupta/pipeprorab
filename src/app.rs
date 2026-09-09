@@ -6,6 +6,7 @@ use egui_snarl::{
     ui::{PinInfo, SnarlStyle, SnarlViewer},
 };
 use rust_xlsxwriter::{Color, Format, Workbook, XlsxError};
+use std::collections::HashMap;
 
 use crate::docs::DocWidget;
 use crate::model::{
@@ -43,7 +44,14 @@ fn ui_val_mm(ui: &mut egui::Ui, label: &str, val_m: &mut f64) {
 }
 
 // Поле с трубопроводом
-struct PipeViewer;
+struct NodeDrawResult {
+    q: f64,
+    p_in: f64,
+    p_out: f64,
+}
+struct PipeViewer {
+    results: HashMap<String, NodeDrawResult>,
+}
 impl SnarlViewer<PipeNode> for PipeViewer {
     fn connect(&mut self, from: &OutPin, to: &InPin, snarl: &mut Snarl<PipeNode>) {
         snarl.connect(from.id, to.id);
@@ -110,6 +118,26 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                         });
                     }
                 }
+            }
+
+            if let Some(res) = self.results.get(&snarl[node].name) {
+                ui.separator();
+                ui.group(|ui| {
+                    ui.label(egui::RichText::new("Результаты расчёта").strong());
+
+                    ui.horizontal(|ui| {
+                        ui.label("Q:");
+                        ui.label(format!("{:.4} м³/с", res.q));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("P вх:");
+                        ui.label(format!("{:.1} кПа", res.p_in / 1000.0));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("P вых:");
+                        ui.label(format!("{:.1} кПа", res.p_out / 1000.0));
+                    });
+                });
             }
         });
     }
@@ -669,7 +697,27 @@ impl eframe::App for HydroApp {
                 self.doc_widget.render_docs(ui);
             } else {
                 let id = ui.make_persistent_id("snarl_editor");
-                self.snarl.show(&mut PipeViewer, &self.style, id, ui);
+
+                let mut results_map = HashMap::new();
+                if let CalculationState::Success(ref res) = self.calc_state {
+                    let mut flat_tree = Vec::new();
+                    flatten_pipeline(&res.pipeline, 0, &mut flat_tree);
+                    for (_, comp) in flat_tree {
+                        results_map.insert(
+                            comp.name.clone(),
+                            NodeDrawResult {
+                                q: comp.state.q,
+                                p_in: comp.state.p_in,
+                                p_out: comp.state.p_out,
+                            },
+                        );
+                    }
+                }
+
+                let mut viewer = PipeViewer {
+                    results: results_map,
+                };
+                self.snarl.show(&mut viewer, &self.style, id, ui);
             }
         });
     }
