@@ -98,9 +98,8 @@ struct Pump {
     c: f64,
 }
 impl Pump {
-    pub fn from_points(p: &[[f64; 2]; 3]) -> Result<Self, &'static str> {
-        let ((q1, h1), (q2, h2), (q3, h3)) =
-            ((p[0][0], p[0][1]), (p[1][0], p[1][1]), (p[2][0], p[2][1]));
+    pub fn from_points(p: &[(f64, f64); 3]) -> Result<Self, &'static str> {
+        let ((q1, h1), (q2, h2), (q3, h3)) = (p[0], p[1], p[2]);
         let denom = (q1 - q2) * (q1 - q3) * (q2 - q3);
         if denom.abs() < 1e-12 {
             return Err("Расход Q для точек должен различаться.");
@@ -250,7 +249,12 @@ fn solve_operating_point(
 }
 
 // --- КОНВЕРТАЦИЯ ГРАФА В МОДЕЛЬ (Написано Gemini) ---
-fn build_model(snarl: &Snarl<PipeNode>) -> Result<([[f64; 2]; 3], Component), &'static str> {
+struct ModelData {
+    pump_points: [(f64, f64); 3],
+    pipeline: Component,
+}
+
+fn build_model(snarl: &Snarl<PipeNode>) -> Result<ModelData, &'static str> {
     let (pump_node, pump_points) = snarl
         .node_ids()
         .find_map(|(id, n)| {
@@ -258,9 +262,9 @@ fn build_model(snarl: &Snarl<PipeNode>) -> Result<([[f64; 2]; 3], Component), &'
                 Some((
                     id,
                     [
-                        [points[0].0, points[0].1],
-                        [points[1].0, points[1].1],
-                        [points[2].0, points[2].1],
+                        (points[0].0, points[0].1),
+                        (points[1].0, points[1].1),
+                        (points[2].0, points[2].1),
                     ],
                 ))
             } else {
@@ -387,10 +391,10 @@ fn build_model(snarl: &Snarl<PipeNode>) -> Result<([[f64; 2]; 3], Component), &'
     }
 
     let initial = process_chain(pump_node, None, snarl, &adj);
-    Ok((
+    Ok(ModelData {
         pump_points,
-        Component::new("Магистраль", ElementKind::Series(initial)),
-    ))
+        pipeline: Component::new("Магистраль", ElementKind::Series(initial)),
+    })
 }
 
 // --- ИТОГОВЫЙ РАСЧЕТ ---
@@ -405,9 +409,9 @@ pub struct CalculationResult {
 }
 
 pub fn calculate_pipeline(snarl: &Snarl<PipeNode>) -> Result<CalculationResult, String> {
-    let (pts, mut pipeline) =
-        build_model(snarl).map_err(|e| format!("Ошибка сборки модели: {e}"))?;
-    let pump = Pump::from_points(&pts).map_err(|e| format!("Ошибка насоса: {e}"))?;
+    let model = build_model(snarl).map_err(|e| format!("Ошибка сборки модели: {e}"))?;
+    let pump = Pump::from_points(&model.pump_points).map_err(|e| format!("Ошибка насоса: {e}"))?;
+    let mut pipeline = model.pipeline;
 
     // Итерационный поиск рабочей точки
     let mut q_op = 0.1;
