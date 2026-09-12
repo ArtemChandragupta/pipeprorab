@@ -17,7 +17,7 @@ pub struct PipeNode {
     pub kind: PipeNodeKind,
 }
 
-// Физические омпоненты трубопровода кроме насоса
+// Физические компоненты трубопровода кроме насоса
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum PartType {
