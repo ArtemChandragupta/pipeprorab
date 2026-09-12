@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use crate::docs::DocWidget;
 use crate::model::{
-    CalculationResult, Component, ElementKind, G_GRAV, PipeNode, PipeNodeKind, RHO,
+    CalculationResult, Component, ElementKind, G_GRAV, PartType, PipeNode, PipeNodeKind, RHO,
     calculate_pipeline,
 };
 
@@ -86,25 +86,23 @@ impl SnarlViewer<PipeNode> for PipeViewer {
             });
             ui.separator();
 
+            use PartType::*;
+            use PipeNodeKind::*;
+
             match &mut snarl[node].kind {
-                PipeNodeKind::Pipe {
-                    length,
-                    diameter,
-                    roughness,
-                    ..
-                } => {
-                    ui_val(ui, "Длина (м):", length);
-                    ui_val_mm(ui, "Диаметр (мм):", diameter);
-                    ui_val_mm(ui, "Шероховатость (мм):", roughness);
+                Type(Pipe { l, d, r, .. }) => {
+                    ui_val(ui, "Длина (м):", l);
+                    ui_val_mm(ui, "Диаметр (мм):", d);
+                    ui_val_mm(ui, "Шероховатость (мм):", r);
                 }
-                PipeNodeKind::Fitting { diameter, zeta, .. } => {
-                    ui_val_mm(ui, "Диаметр (мм):", diameter);
-                    ui_val(ui, "Сопротивление (ξ):", zeta);
+                Type(Fitting { d, z, .. }) => {
+                    ui_val_mm(ui, "Диаметр (мм):", d);
+                    ui_val(ui, "Сопротивление (ξ):", z);
                 }
-                PipeNodeKind::HeightDrop { delta_h, .. } => {
-                    ui_val(ui, "Δh (м):", delta_h);
+                Type(HeightDrop { dh, .. }) => {
+                    ui_val(ui, "Δh (м):", dh);
                 }
-                PipeNodeKind::PressureDrop { dp, .. } => {
+                Type(PressureDrop { dp, .. }) => {
                     ui_val(ui, "ΔP (Па):", dp);
                 }
                 PipeNodeKind::Pump { points, .. } => {
@@ -199,16 +197,19 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         ui.label("Добавить элемент");
         let idx = snarl.node_ids().count() + 1;
 
+        use PartType::*;
+        use PipeNodeKind::*;
+
         if ui.button("Труба").clicked() {
             snarl.insert_node(
                 pos,
                 PipeNode {
                     name: format!("Труба {idx}"),
-                    kind: PipeNodeKind::Pipe {
-                        length: 1.0,
-                        diameter: 0.1,
-                        roughness: 0.0001,
-                    },
+                    kind: Type(Pipe {
+                        l: 1.0,
+                        d: 0.1,
+                        r: 0.0001,
+                    }),
                 },
             );
             ui.close();
@@ -218,10 +219,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                 pos,
                 PipeNode {
                     name: format!("Местн. сопротивление {idx}"),
-                    kind: PipeNodeKind::Fitting {
-                        diameter: 0.1,
-                        zeta: 1.0,
-                    },
+                    kind: Type(Fitting { d: 0.1, z: 1.0 }),
                 },
             );
             ui.close();
@@ -231,7 +229,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                 pos,
                 PipeNode {
                     name: format!("Перепад высоты {idx}"),
-                    kind: PipeNodeKind::HeightDrop { delta_h: 1.0 },
+                    kind: Type(HeightDrop { dh: 1.0 }),
                 },
             );
             ui.close();
@@ -241,7 +239,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                 pos,
                 PipeNode {
                     name: format!("Падение давления {idx}"),
-                    kind: PipeNodeKind::PressureDrop { dp: 1000.0 },
+                    kind: Type(PressureDrop { dp: 1000.0 }),
                 },
             );
             ui.close();

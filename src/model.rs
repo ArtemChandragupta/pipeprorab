@@ -17,28 +17,22 @@ pub struct PipeNode {
     pub kind: PipeNodeKind,
 }
 
+// Физические омпоненты трубопровода кроме насоса
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum PartType {
+    Pipe { l: f64, d: f64, r: f64 },
+    Fitting { d: f64, z: f64 },
+    HeightDrop { dh: f64 },
+    PressureDrop { dp: f64 },
+}
+
 // Структура для графического отображения - с неё всё начинается
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(untagged)]
 pub enum PipeNodeKind {
-    Pipe {
-        length: f64,
-        diameter: f64,
-        roughness: f64,
-    },
-    Fitting {
-        diameter: f64,
-        zeta: f64,
-    },
-    HeightDrop {
-        delta_h: f64,
-    },
-    PressureDrop {
-        dp: f64,
-    },
-    Pump {
-        points: [(f64, f64); 3],
-    },
+    Type(PartType),
+    Pump { points: [(f64, f64); 3] },
 }
 
 // --- СТРУКТУРЫ ДЛЯ РАСЧЕТА ---
@@ -62,10 +56,7 @@ pub struct Component {
 // Различные типы элементов для расчета, чтобы построить из них вложенный граф для рекурсии. Здесь нет насоса, зато есть параллельность и последовательность - всё для парсинга
 #[derive(Debug, Clone)]
 pub enum ElementKind {
-    Pipe { l: f64, d: f64, r: f64 },
-    Fitting { d: f64, zeta: f64 },
-    HeightDrop { delta_h: f64 },
-    PressureDrop { dp: f64 },
+    Type(PartType),
     Series(Vec<Component>),
     Parallel(Vec<Component>),
 }
@@ -80,13 +71,16 @@ impl Component {
     }
 
     pub fn type_name(&self) -> &'static str {
+        use ElementKind::*;
+        use PartType::*;
+
         match self.kind {
-            ElementKind::Pipe { .. } => "pipe",
-            ElementKind::Fitting { .. } => "fitting",
-            ElementKind::HeightDrop { .. } => "height_drop",
-            ElementKind::PressureDrop { .. } => "pressure_drop",
-            ElementKind::Series(_) => "series",
-            ElementKind::Parallel(_) => "parallel",
+            Type(Pipe { .. }) => "pipe",
+            Type(Fitting { .. }) => "fitting",
+            Type(HeightDrop { .. }) => "height_drop",
+            Type(PressureDrop { .. }) => "pressure_drop",
+            Series(_) => "series",
+            Parallel(_) => "parallel",
         }
     }
 }
@@ -121,11 +115,14 @@ impl Pump {
 
 // --- ЛОГИКА РАСЧЕТОВ ---
 fn get_static_pressure(comp: &Component) -> f64 {
+    use ElementKind::*;
+    use PartType::*;
+
     match &comp.kind {
-        ElementKind::Series(elems) => elems.iter().map(get_static_pressure).sum(),
-        ElementKind::Parallel(branches) => branches.first().map_or(0.0, get_static_pressure),
-        ElementKind::HeightDrop { delta_h } => *delta_h * RHO * G_GRAV,
-        ElementKind::PressureDrop { dp } => *dp,
+        Series(elems) => elems.iter().map(get_static_pressure).sum(),
+        Parallel(branches) => branches.first().map_or(0.0, get_static_pressure),
+        Type(HeightDrop { dh }) => *dh * RHO * G_GRAV,
+        Type(PressureDrop { dp }) => *dp,
         _ => 0.0,
     }
 }
@@ -135,7 +132,7 @@ fn update_k(comp: &mut Component, q_in: f64) -> f64 {
     let q = q_in.abs().max(1e-9);
 
     let k = match &mut comp.kind {
-        ElementKind::Pipe { l, d, r } => {
+        ElementKind::Type(PartType::Pipe { l, d, r }) => {
             let v = 4.0 * q / (PI * d.powi(2));
             let re = (v * *d) / NU;
             let lam = if re < 2300.0 {
@@ -147,8 +144,11 @@ fn update_k(comp: &mut Component, q_in: f64) -> f64 {
             };
             (8.0 * lam * *l * RHO) / (PI.powi(2) * d.powi(5))
         }
-        ElementKind::Fitting { d, zeta } => (8.0 * *zeta * RHO) / (PI.powi(2) * d.powi(4)),
-        ElementKind::HeightDrop { .. } | ElementKind::PressureDrop { .. } => 0.0,
+        ElementKind::Type(PartType::Fitting { d, z }) => {
+            (8.0 * *z * RHO) / (PI.powi(2) * d.powi(4))
+        }
+        ElementKind::Type(PartType::HeightDrop { .. })
+        | ElementKind::Type(PartType::PressureDrop { .. }) => 0.0,
         ElementKind::Series(elems) => elems.iter_mut().map(|e| update_k(e, q)).sum(),
         ElementKind::Parallel(branches) => {
             let inv_sqrts: Vec<f64> = branches
@@ -182,18 +182,21 @@ fn update_k(comp: &mut Component, q_in: f64) -> f64 {
 
 // Финальный расчет падения давления на элементе
 fn calc_flow_pressure(comp: &mut Component, q_in: f64, p_in: f64) -> f64 {
+    use ElementKind::*;
+    use PartType::*;
+
     comp.state.q = q_in;
     comp.state.p_in = p_in;
     let k = comp.state.k;
 
     let p_out = match &mut comp.kind {
-        ElementKind::Pipe { .. } | ElementKind::Fitting { .. } => p_in - k * q_in.powi(2),
-        ElementKind::HeightDrop { delta_h } => p_in - RHO * G_GRAV * (*delta_h),
-        ElementKind::PressureDrop { dp } => p_in - (*dp),
-        ElementKind::Series(elems) => elems
+        Type(Pipe { .. }) | Type(Fitting { .. }) => p_in - k * q_in.powi(2),
+        Type(HeightDrop { dh }) => p_in - RHO * G_GRAV * (*dh),
+        Type(PressureDrop { dp }) => p_in - (*dp),
+        Series(elems) => elems
             .iter_mut()
             .fold(p_in, |p, e| calc_flow_pressure(e, q_in, p)),
-        ElementKind::Parallel(branches) => {
+        Parallel(branches) => {
             let static_drop = get_static_pressure(branches.first().unwrap());
             let out = p_in - k * q_in.powi(2) - static_drop;
 
@@ -333,23 +336,7 @@ fn build_model(snarl: &Snarl<PipeNode>) -> Result<ModelData, &'static str> {
         while Some(curr) != end_at {
             let node = &snarl[curr];
             let elem_kind = match &node.kind {
-                PipeNodeKind::Pipe {
-                    length,
-                    diameter,
-                    roughness,
-                } => Some(ElementKind::Pipe {
-                    l: *length,
-                    d: *diameter,
-                    r: *roughness,
-                }),
-                PipeNodeKind::Fitting { diameter, zeta } => Some(ElementKind::Fitting {
-                    d: *diameter,
-                    zeta: *zeta,
-                }),
-                PipeNodeKind::HeightDrop { delta_h } => {
-                    Some(ElementKind::HeightDrop { delta_h: *delta_h })
-                }
-                PipeNodeKind::PressureDrop { dp } => Some(ElementKind::PressureDrop { dp: *dp }),
+                PipeNodeKind::Type(element) => Some(ElementKind::Type(element.clone())),
                 PipeNodeKind::Pump { .. } => None,
             };
 
