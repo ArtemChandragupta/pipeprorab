@@ -90,22 +90,52 @@ impl SnarlViewer<PipeNode> for PipeViewer {
             use PipeNodeKind::*;
 
             match &mut snarl[node].kind {
-                Type(Pipe { l, d, r, .. }) => {
+                Type(Pipe { l, d, r }) => {
                     ui_val(ui, "Длина (м):", l);
                     ui_val_mm(ui, "Диаметр (мм):", d);
                     ui_val_mm(ui, "Шероховатость (мм):", r);
                 }
-                Type(Fitting { d, z, .. }) => {
+                Type(Fitting { d, z }) => {
                     ui_val_mm(ui, "Диаметр (мм):", d);
                     ui_val(ui, "Сопротивление (ξ):", z);
                 }
-                Type(HeightDrop { dh, .. }) => {
+                Type(ValveKv { kv }) => {
+                    ui_val(ui, "Kv:", kv);
+                }
+                Type(Orifice { d1, d0 }) => {
+                    ui_val_mm(ui, "Диаметр наружный (мм):", d1);
+                    ui_val_mm(ui, "Диаметр внутренний (мм):", d0);
+                }
+                Type(Elbow { d, angle, r_d }) => {
+                    ui_val_mm(ui, "Диаметр (мм):", d);
+                    ui_val(ui, "Угол (градус):", angle);
+                    ui_val(ui, "Радиус поворота / диаметр:", r_d);
+                }
+                Type(SuddenExpansion { d1, d2 }) => {
+                    ui_val_mm(ui, "Диаметр начальный (мм):", d1);
+                    ui_val_mm(ui, "Диаметр конечный (мм):", d2);
+                }
+                Type(SuddenContraction { d1, d2 }) => {
+                    ui_val_mm(ui, "Диаметр начальный (мм):", d1);
+                    ui_val_mm(ui, "Диаметр конечный (мм):", d2);
+                }
+                Type(SmoothExpansion { d1, d2, angle }) => {
+                    ui_val_mm(ui, "Диаметр начальный (мм):", d1);
+                    ui_val_mm(ui, "Диаметр конечный (мм):", d2);
+                    ui_val(ui, "Угол (градус):", angle);
+                }
+                Type(SmoothContraction { d1, d2, angle }) => {
+                    ui_val_mm(ui, "Диаметр начальный (мм):", d1);
+                    ui_val_mm(ui, "Диаметр конечный (мм):", d2);
+                    ui_val(ui, "Угол (градус):", angle);
+                }
+                Type(HeightDrop { dh }) => {
                     ui_val(ui, "Δh (м):", dh);
                 }
-                Type(PressureDrop { dp, .. }) => {
+                Type(PressureDrop { dp }) => {
                     ui_val(ui, "ΔP (Па):", dp);
                 }
-                PipeNodeKind::Pump { points, .. } => {
+                PipeNodeKind::Pump { points } => {
                     ui.label("Рабочие точки:");
                     for (i, (q, h)) in points.iter_mut().enumerate() {
                         ui.horizontal(|ui| {
@@ -200,62 +230,70 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         use PartType::*;
         use PipeNodeKind::*;
 
-        if ui.button("Труба").clicked() {
-            snarl.insert_node(
-                pos,
-                PipeNode {
-                    name: format!("Труба {idx}"),
-                    kind: Type(Pipe {
-                        l: 1.0,
-                        d: 0.1,
-                        r: 0.0001,
-                    }),
-                },
-            );
-            ui.close();
-        }
-        if ui.button("Местное сопротивление").clicked() {
-            snarl.insert_node(
-                pos,
-                PipeNode {
-                    name: format!("Местн. сопротивление {idx}"),
-                    kind: Type(Fitting { d: 0.1, z: 1.0 }),
-                },
-            );
-            ui.close();
-        }
-        if ui.button("Перепад высоты").clicked() {
-            snarl.insert_node(
-                pos,
-                PipeNode {
-                    name: format!("Перепад высоты {idx}"),
-                    kind: Type(HeightDrop { dh: 1.0 }),
-                },
-            );
-            ui.close();
-        }
-        if ui.button("Падение давления").clicked() {
-            snarl.insert_node(
-                pos,
-                PipeNode {
-                    name: format!("Падение давления {idx}"),
-                    kind: Type(PressureDrop { dp: 1000.0 }),
-                },
-            );
-            ui.close();
-        }
-        if ui.button("Насос").clicked() {
-            snarl.insert_node(
-                pos,
-                PipeNode {
-                    name: "Насос".to_owned(),
-                    kind: PipeNodeKind::Pump {
-                        points: [(0.01, 20.0), (0.02, 15.0), (0.03, 5.0)],
-                    },
-                },
-            );
-            ui.close();
-        }
+        let mut add_btn = |label: &str, kind: PipeNodeKind| {
+            if ui.button(label).clicked() {
+                let name = if label == "Насос" {
+                    label.to_owned()
+                } else {
+                    format!("{label} {idx}")
+                };
+
+                snarl.insert_node(pos, PipeNode { name, kind });
+                ui.close();
+            }
+        };
+
+        add_btn(
+            "Труба",
+            Type(Pipe {
+                l: 1.0,
+                d: 0.1,
+                r: 0.0001,
+            }),
+        );
+        add_btn("Местное сопротивление", Type(Fitting { d: 0.1, z: 1.0 }));
+        add_btn("Клапан по Kv", Type(ValveKv { kv: 10.0 }));
+        add_btn("Диафрагма", Type(Orifice { d1: 0.1, d0: 0.01 }));
+        add_btn(
+            "Поворотное колено",
+            Type(Elbow {
+                d: 0.1,
+                angle: 90.0,
+                r_d: 10.0,
+            }),
+        );
+        add_btn(
+            "Резкое расширение",
+            Type(SuddenExpansion { d1: 0.1, d2: 0.2 }),
+        );
+        add_btn(
+            "Резкое сужение",
+            Type(SuddenContraction { d1: 0.1, d2: 0.05 }),
+        );
+        add_btn(
+            "Гладкое расширение",
+            Type(SmoothExpansion {
+                d1: 0.1,
+                d2: 0.2,
+                angle: 15.0,
+            }),
+        );
+        add_btn(
+            "Гладкое сужение",
+            Type(SmoothContraction {
+                d1: 0.1,
+                d2: 0.05,
+                angle: 15.0,
+            }),
+        );
+        add_btn("Перепад высоты", Type(HeightDrop { dh: 1.0 }));
+        add_btn("Падение давления", Type(PressureDrop { dp: 1000.0 }));
+        add_btn(
+            "Насос",
+            Pump {
+                points: [(0.01, 20.0), (0.02, 15.0), (0.03, 5.0)],
+            },
+        );
     }
 }
 
@@ -277,18 +315,10 @@ fn draw_results_table(ui: &mut egui::Ui, pipeline: &Component) {
         .striped(true)
         .resizable(true)
         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-        .column(Column::initial(220.0).at_least(100.0)) // Название
-        .column(Column::initial(100.0).at_least(60.0)) // Тип
-        .column(Column::initial(100.0).at_least(60.0)) // Расход
-        .column(Column::initial(100.0).at_least(60.0)) // P вх
-        .column(Column::initial(100.0).at_least(60.0)) // P вых
-        .column(Column::remainder().at_least(80.0)) // dP
+        .columns(Column::auto(), 5)
         .header(24.0, |mut header| {
             header.col(|ui| {
                 ui.strong("Элемент");
-            });
-            header.col(|ui| {
-                ui.strong("Тип");
             });
             header.col(|ui| {
                 ui.strong("Расход (м³/с)");
@@ -309,9 +339,6 @@ fn draw_results_table(ui: &mut egui::Ui, pipeline: &Component) {
                     row.col(|ui| {
                         let indent = "   ".repeat(depth);
                         ui.label(format!("{indent}{}", comp.name));
-                    });
-                    row.col(|ui| {
-                        ui.label(comp.type_name());
                     });
                     row.col(|ui| {
                         ui.label(format!("{:.4}", comp.state.q));
@@ -438,7 +465,7 @@ fn export_to_excel(res: &CalculationResult, filename: &str) -> Result<(), XlsxEr
 
     let headers = [
         "Элемент",
-        "Тип",
+        // "Тип",
         "Расход (м³/с)",
         "P вх (кПа)",
         "P вых (кПа)",
@@ -459,13 +486,12 @@ fn export_to_excel(res: &CalculationResult, filename: &str) -> Result<(), XlsxEr
         let name_with_indent = format!("{}{}", indent, comp.name);
 
         worksheet.write_string(row_idx, 0, name_with_indent)?;
-        worksheet.write_string(row_idx, 1, comp.type_name())?;
-        worksheet.write_number(row_idx, 2, comp.state.q)?;
-        worksheet.write_number(row_idx, 3, comp.state.p_in / 1000.0)?;
-        worksheet.write_number(row_idx, 4, comp.state.p_out / 1000.0)?;
+        worksheet.write_number(row_idx, 1, comp.state.q)?;
+        worksheet.write_number(row_idx, 2, comp.state.p_in / 1000.0)?;
+        worksheet.write_number(row_idx, 3, comp.state.p_out / 1000.0)?;
 
         let dp = (comp.state.p_in - comp.state.p_out) / 1000.0;
-        worksheet.write_number(row_idx, 5, dp)?;
+        worksheet.write_number(row_idx, 4, dp)?;
     }
 
     workbook.save(filename)?;

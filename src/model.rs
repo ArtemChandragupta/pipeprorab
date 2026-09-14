@@ -25,6 +25,13 @@ pub enum PartType {
     Fitting { d: f64, z: f64 },
     HeightDrop { dh: f64 },
     PressureDrop { dp: f64 },
+    ValveKv { kv: f64 },
+    Orifice { d1: f64, d0: f64 },
+    Elbow { d: f64, angle: f64, r_d: f64 },
+    SuddenExpansion { d1: f64, d2: f64 },
+    SuddenContraction { d1: f64, d2: f64 },
+    SmoothExpansion { d1: f64, d2: f64, angle: f64 },
+    SmoothContraction { d1: f64, d2: f64, angle: f64 },
 }
 
 // Структура для графического отображения - с неё всё начинается
@@ -53,7 +60,7 @@ pub struct Component {
     pub state: HydraulicState,
 }
 
-// Различные типы элементов для расчета, чтобы построить из них вложенный граф для рекурсии. Здесь нет насоса, зато есть параллельность и последовательность - всё для парсинга
+// Различные типы элементов для расчета, чтобы построить из них вложенный граф для рекурсии. Здесь нет насоса, зато есть параллельность и последовательность - всё для парсинга. В одну стрктуру данных поместить всё нельзя, потому что будет неудобно обрабатывать
 #[derive(Debug, Clone)]
 pub enum ElementKind {
     Type(PartType),
@@ -67,20 +74,6 @@ impl Component {
             name: name.into(),
             kind,
             state: HydraulicState::default(),
-        }
-    }
-
-    pub fn type_name(&self) -> &'static str {
-        use ElementKind::*;
-        use PartType::*;
-
-        match self.kind {
-            Type(Pipe { .. }) => "pipe",
-            Type(Fitting { .. }) => "fitting",
-            Type(HeightDrop { .. }) => "height_drop",
-            Type(PressureDrop { .. }) => "pressure_drop",
-            Series(_) => "series",
-            Parallel(_) => "parallel",
         }
     }
 }
@@ -129,10 +122,13 @@ fn get_static_pressure(comp: &Component) -> f64 {
 
 // Расчет эквивалентного сопротивления
 fn update_k(comp: &mut Component, q_in: f64) -> f64 {
+    use ElementKind::*;
+    use PartType::*;
+
     let q = q_in.abs().max(1e-9);
 
     let k = match &mut comp.kind {
-        ElementKind::Type(PartType::Pipe { l, d, r }) => {
+        Type(Pipe { l, d, r }) => {
             let v = 4.0 * q / (PI * d.powi(2));
             let re = (v * *d) / NU;
             let lam = if re < 2300.0 {
@@ -144,13 +140,48 @@ fn update_k(comp: &mut Component, q_in: f64) -> f64 {
             };
             (8.0 * lam * *l * RHO) / (PI.powi(2) * d.powi(5))
         }
-        ElementKind::Type(PartType::Fitting { d, z }) => {
-            (8.0 * *z * RHO) / (PI.powi(2) * d.powi(4))
+        Type(Fitting { d, z }) => (8.0 * *z * RHO) / (PI.powi(2) * d.powi(4)),
+        Type(ValveKv { kv }) => {
+            let kv_safe = kv.max(1e-6);
+            1.296e12 / kv_safe.powi(2)
         }
-        ElementKind::Type(PartType::HeightDrop { .. })
-        | ElementKind::Type(PartType::PressureDrop { .. }) => 0.0,
-        ElementKind::Series(elems) => elems.iter_mut().map(|e| update_k(e, q)).sum(),
-        ElementKind::Parallel(branches) => {
+        Type(Orifice { d1, d0 }) => {
+            let n = (*d0 / *d1).powi(2);
+            let zeta = (1.0 + 0.707 * (1.0 - n).max(0.0).sqrt() - n).powi(2) / n.powi(2).max(1e-9);
+            (8.0 * zeta * RHO) / (PI.powi(2) * d1.powi(4))
+        }
+        Type(Elbow { d, angle, r_d }) => {
+            let d_2r = 1.0 / (2.0 * r_d.max(0.001));
+            let zeta = (0.131 + 1.63 * d_2r.powf(3.5)) * (*angle / 90.0);
+            (8.0 * zeta * RHO) / (PI.powi(2) * d.powi(4))
+        }
+        Type(SuddenExpansion { d1, d2 }) => {
+            let n = (*d1 / *d2).powi(2);
+            let zeta = (1.0 - n).powi(2); // Борда-Карно
+            (8.0 * zeta * RHO) / (PI.powi(2) * d1.powi(4))
+        }
+        Type(SuddenContraction { d1, d2 }) => {
+            let n = (*d2 / *d1).powi(2);
+            let zeta = 0.5 * (1.0 - n);
+            (8.0 * zeta * RHO) / (PI.powi(2) * d2.powi(4))
+        }
+        Type(SmoothExpansion { d1, d2, angle }) => {
+            let n = (*d1 / *d2).powi(2);
+            let alpha_rad = angle.to_radians();
+            let k_diff = 3.2 * (alpha_rad / 2.0).tan().powf(1.25);
+            let zeta = k_diff.min(1.0) * (1.0 - n).powi(2);
+            (8.0 * zeta * RHO) / (PI.powi(2) * d1.powi(4))
+        }
+        Type(SmoothContraction { d1, d2, angle }) => {
+            let n = (*d2 / *d1).powi(2);
+            let alpha_rad = angle.to_radians();
+            let k_conf = (alpha_rad / 2.0).sin().max(0.0).sqrt();
+            let zeta = 0.5 * (1.0 - n) * k_conf.min(1.0);
+            (8.0 * zeta * RHO) / (PI.powi(2) * d2.powi(4))
+        }
+        Type(HeightDrop { .. }) | Type(PressureDrop { .. }) => 0.0,
+        Series(elems) => elems.iter_mut().map(|e| update_k(e, q)).sum(),
+        Parallel(branches) => {
             let inv_sqrts: Vec<f64> = branches
                 .iter()
                 .map(|b| {
@@ -190,7 +221,15 @@ fn calc_flow_pressure(comp: &mut Component, q_in: f64, p_in: f64) -> f64 {
     let k = comp.state.k;
 
     let p_out = match &mut comp.kind {
-        Type(Pipe { .. }) | Type(Fitting { .. }) => p_in - k * q_in.powi(2),
+        Type(Pipe { .. })
+        | Type(Fitting { .. })
+        | Type(ValveKv { .. })
+        | Type(Orifice { .. })
+        | Type(Elbow { .. })
+        | Type(SuddenExpansion { .. })
+        | Type(SuddenContraction { .. })
+        | Type(SmoothExpansion { .. })
+        | Type(SmoothContraction { .. }) => p_in - k * q_in.powi(2),
         Type(HeightDrop { dh }) => p_in - RHO * G_GRAV * (*dh),
         Type(PressureDrop { dp }) => p_in - (*dp),
         Series(elems) => elems
