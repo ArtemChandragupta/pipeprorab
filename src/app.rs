@@ -201,7 +201,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         PinInfo::triangle().with_fill(egui::Color32::GREEN)
     }
 
-    // Действия на элементе - пока только убрать
+    // Действия на элементе - убрать и копировать
     fn has_node_menu(&mut self, _: &PipeNode) -> bool {
         true
     }
