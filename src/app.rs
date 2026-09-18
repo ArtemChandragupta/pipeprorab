@@ -213,6 +213,21 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         ui: &mut Ui,
         snarl: &mut Snarl<PipeNode>,
     ) {
+        if ui.button("Копировать элемент").clicked() {
+            let mut cloned_node = snarl[node].clone();
+            cloned_node.name = format!("{} (копия)", cloned_node.name);
+
+            let old_pos = if let Some(node_info) = snarl.get_node_info(node) {
+                node_info.pos
+            } else {
+                egui::Pos2::ZERO
+            };
+            let new_pos = old_pos + egui::vec2(50.0, 50.0);
+
+            snarl.insert_node(new_pos, cloned_node);
+
+            ui.close();
+        }
         if ui.button("Убрать элемент").clicked() {
             snarl.remove_node(node);
             ui.close();
@@ -230,7 +245,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         use PartType::*;
         use PipeNodeKind::*;
 
-        let mut add_btn = |label: &str, kind: PipeNodeKind| {
+        let mut add_btn = |ui: &mut egui::Ui, label: &str, kind: PipeNodeKind| {
             if ui.button(label).clicked() {
                 let name = if label == "Насос" {
                     label.to_owned()
@@ -244,6 +259,14 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         };
 
         add_btn(
+            ui,
+            "Насос",
+            Pump {
+                points: [(0.01, 20.0), (0.02, 15.0), (0.03, 5.0)],
+            },
+        );
+        add_btn(
+            ui,
             "Труба",
             Type(Pipe {
                 l: 1.0,
@@ -251,49 +274,58 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                 r: 0.0001,
             }),
         );
-        add_btn("Местное сопротивление", Type(Fitting { d: 0.1, z: 1.0 }));
-        add_btn("Клапан по Kv", Type(ValveKv { kv: 10.0 }));
-        add_btn("Диафрагма", Type(Orifice { d1: 0.1, d0: 0.01 }));
-        add_btn(
-            "Поворотное колено",
-            Type(Elbow {
-                d: 0.1,
-                angle: 90.0,
-                r_d: 10.0,
-            }),
-        );
-        add_btn(
-            "Резкое расширение",
-            Type(SuddenExpansion { d1: 0.1, d2: 0.2 }),
-        );
-        add_btn(
-            "Резкое сужение",
-            Type(SuddenContraction { d1: 0.1, d2: 0.05 }),
-        );
-        add_btn(
-            "Гладкое расширение",
-            Type(SmoothExpansion {
-                d1: 0.1,
-                d2: 0.2,
-                angle: 15.0,
-            }),
-        );
-        add_btn(
-            "Гладкое сужение",
-            Type(SmoothContraction {
-                d1: 0.1,
-                d2: 0.05,
-                angle: 15.0,
-            }),
-        );
-        add_btn("Перепад высоты", Type(HeightDrop { dh: 1.0 }));
-        add_btn("Падение давления", Type(PressureDrop { dp: 1000.0 }));
-        add_btn(
-            "Насос",
-            Pump {
-                points: [(0.01, 20.0), (0.02, 15.0), (0.03, 5.0)],
-            },
-        );
+        ui.menu_button("Арматура и фитинги", |ui| {
+            add_btn(
+                ui,
+                "Местное сопротивление",
+                Type(Fitting { d: 0.1, z: 1.0 }),
+            );
+            add_btn(ui, "Клапан по Kv", Type(ValveKv { kv: 10.0 }));
+            add_btn(ui, "Диафрагма", Type(Orifice { d1: 0.1, d0: 0.01 }));
+            add_btn(
+                ui,
+                "Поворотное колено",
+                Type(Elbow {
+                    d: 0.1,
+                    angle: 90.0,
+                    r_d: 10.0,
+                }),
+            );
+        });
+        ui.menu_button("Изменение сечения", |ui| {
+            add_btn(
+                ui,
+                "Резкое расширение",
+                Type(SuddenExpansion { d1: 0.1, d2: 0.2 }),
+            );
+            add_btn(
+                ui,
+                "Резкое сужение",
+                Type(SuddenContraction { d1: 0.1, d2: 0.05 }),
+            );
+            add_btn(
+                ui,
+                "Гладкое расширение",
+                Type(SmoothExpansion {
+                    d1: 0.1,
+                    d2: 0.2,
+                    angle: 15.0,
+                }),
+            );
+            add_btn(
+                ui,
+                "Гладкое сужение",
+                Type(SmoothContraction {
+                    d1: 0.1,
+                    d2: 0.05,
+                    angle: 15.0,
+                }),
+            );
+        });
+        ui.menu_button("Условия среды", |ui| {
+            add_btn(ui, "Перепад высоты", Type(HeightDrop { dh: 1.0 }));
+            add_btn(ui, "Падение давления", Type(PressureDrop { dp: 1000.0 }));
+        });
     }
 }
 
