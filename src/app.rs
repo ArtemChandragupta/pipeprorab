@@ -14,33 +14,104 @@ use crate::model::{
     calculate_pipeline,
 };
 
-// Слайдеры и поля для значения в виде-графе
-fn ui_val(ui: &mut Ui, label: &str, val: &mut f64) {
-    ui.horizontal(|ui| {
-        ui.label(label);
-        ui.add(
-            egui::DragValue::new(val)
-                .range(0.0..=f32::INFINITY)
-                .speed(0.01),
-        );
-    });
-}
+const UNITS_LENGTH: &[(f64, &str)] = &[(1.0, "м"), (0.01, "см"), (0.001, "мм")];
+const UNITS_PRESSURE: &[(f64, &str)] = &[
+    (1.0, "Па"),
+    (1000.0, "кПа"),
+    (100000.0, "бар"),
+    (1000000.0, "МПа"),
+];
+const UNITS_FLOW: &[(f64, &str)] = &[(1.0, "м³/с"), (0.001, "л/с"), (1.0 / 3600.0, "м³/ч")];
+// const UNITS_ANGLE: &[(f64, &str)] = &[(1.0, "°")];
+const UNITS_NONE: &[(f64, &str)] = &[(1.0, "")];
 
-fn ui_val_mm(ui: &mut egui::Ui, label: &str, val_m: &mut f64) {
-    let mut val_mm = *val_m * 1000.0;
+// Поле ввода
+fn ui_unit_input(
+    ui: &mut egui::Ui,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
+    label: &str,
+    val_si: &mut f64,
+    units: &[(f64, &str)],
+    default_idx: usize,
+) {
+    let id = ui.make_persistent_id(id_salt);
+    let selected_idx = ui.data_mut(|d| d.get_temp::<usize>(id).unwrap_or(default_idx));
+    let mut new_idx = selected_idx;
+
+    let (factor, unit_name) = units[new_idx];
+
     ui.horizontal(|ui| {
         ui.label(label);
+
+        let mut display_val = *val_si / factor;
         if ui
             .add(
-                egui::DragValue::new(&mut val_mm)
+                egui::DragValue::new(&mut display_val)
                     .speed(0.01)
-                    .range(0.0..=f64::INFINITY),
+                    .max_decimals(4),
             )
             .changed()
         {
-            *val_m = val_mm / 1000.0;
+            *val_si = display_val * factor; // Возвращаем в СИ
+        }
+
+        if units.len() > 1 {
+            egui::ComboBox::from_id_salt(id.with("combo"))
+                .selected_text(unit_name)
+                .width(0.0)
+                .show_ui(ui, |ui| {
+                    for (i, &(_, name)) in units.iter().enumerate() {
+                        ui.selectable_value(&mut new_idx, i, name);
+                    }
+                });
+        } else if !unit_name.is_empty() {
+            ui.label(unit_name);
         }
     });
+
+    if new_idx != selected_idx {
+        ui.data_mut(|d| d.insert_temp(id, new_idx));
+    }
+}
+
+// Поле вывода
+fn ui_unit_output(
+    ui: &mut egui::Ui,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
+    label: &str,
+    val_si: f64,
+    units: &[(f64, &str)],
+    default_idx: usize,
+    decimals: usize,
+) {
+    let id = ui.make_persistent_id(id_salt);
+    let selected_idx = ui.data_mut(|d| d.get_temp::<usize>(id).unwrap_or(default_idx));
+    let mut new_idx = selected_idx;
+
+    let (factor, unit_name) = units[new_idx];
+
+    ui.horizontal(|ui| {
+        ui.label(label);
+        let text = format!("{:.*}", decimals, val_si / factor);
+        ui.label(text);
+
+        if units.len() > 1 {
+            egui::ComboBox::from_id_salt(id.with("combo"))
+                .selected_text(unit_name)
+                .width(0.0)
+                .show_ui(ui, |ui| {
+                    for (i, &(_, name)) in units.iter().enumerate() {
+                        ui.selectable_value(&mut new_idx, i, name);
+                    }
+                });
+        } else if !unit_name.is_empty() {
+            ui.label(unit_name);
+        }
+    });
+
+    if new_idx != selected_idx {
+        ui.data_mut(|d| d.insert_temp(id, new_idx));
+    }
 }
 
 // Поле с трубопроводом
@@ -91,58 +162,161 @@ impl SnarlViewer<PipeNode> for PipeViewer {
 
             match &mut snarl[node].kind {
                 Type(Pipe { l, d, r }) => {
-                    ui_val(ui, "Длина (м):", l);
-                    ui_val_mm(ui, "Диаметр (мм):", d);
-                    ui_val_mm(ui, "Шероховатость (мм):", r);
+                    ui_unit_input(ui, (node, "l"), "Длина (м):", l, UNITS_LENGTH, 0);
+                    ui_unit_input(ui, (node, "d"), "Диаметр (мм):", d, UNITS_LENGTH, 2);
+                    ui_unit_input(ui, (node, "r"), "Шероховатость (мм):", r, UNITS_LENGTH, 2);
                 }
                 Type(Fitting { d, z }) => {
-                    ui_val_mm(ui, "Диаметр (мм):", d);
-                    ui_val(ui, "Сопротивление (ξ):", z);
+                    ui_unit_input(ui, (node, "d"), "Диаметр (мм):", d, UNITS_LENGTH, 2);
+                    ui_unit_input(ui, (node, "z"), "Сопротивление (ξ):", z, UNITS_NONE, 0);
                 }
                 Type(ValveKv { kv }) => {
-                    ui_val(ui, "Kv:", kv);
+                    ui_unit_input(ui, (node, "kv"), "Kv:", kv, UNITS_NONE, 0);
                 }
                 Type(Orifice { d1, d0 }) => {
-                    ui_val_mm(ui, "Диаметр наружный (мм):", d1);
-                    ui_val_mm(ui, "Диаметр внутренний (мм):", d0);
+                    ui_unit_input(
+                        ui,
+                        (node, "d1"),
+                        "Диаметр наружный (мм):",
+                        d1,
+                        UNITS_LENGTH,
+                        2,
+                    );
+                    ui_unit_input(
+                        ui,
+                        (node, "d0"),
+                        "Диаметр внутренний (мм):",
+                        d0,
+                        UNITS_LENGTH,
+                        2,
+                    );
                 }
                 Type(Elbow { d, angle, r_d }) => {
-                    ui_val_mm(ui, "Диаметр (мм):", d);
-                    ui_val(ui, "Угол (градус):", angle);
-                    ui_val(ui, "Радиус поворота / диаметр:", r_d);
+                    ui_unit_input(ui, (node, "d"), "Диаметр (мм):", d, UNITS_LENGTH, 2);
+                    ui_unit_input(ui, (node, "angle"), "Угол (градус):", angle, UNITS_NONE, 0);
+                    ui_unit_input(
+                        ui,
+                        (node, "r_d"),
+                        "Радиус поворота / диаметр:",
+                        r_d,
+                        UNITS_NONE,
+                        0,
+                    );
                 }
                 Type(SuddenExpansion { d1, d2 }) => {
-                    ui_val_mm(ui, "Диаметр начальный (мм):", d1);
-                    ui_val_mm(ui, "Диаметр конечный (мм):", d2);
+                    ui_unit_input(
+                        ui,
+                        (node, "d1"),
+                        "Диаметр начальный (мм):",
+                        d1,
+                        UNITS_LENGTH,
+                        2,
+                    );
+                    ui_unit_input(
+                        ui,
+                        (node, "d2"),
+                        "Диаметр конечный (мм):",
+                        d2,
+                        UNITS_LENGTH,
+                        2,
+                    );
                 }
                 Type(SuddenContraction { d1, d2 }) => {
-                    ui_val_mm(ui, "Диаметр начальный (мм):", d1);
-                    ui_val_mm(ui, "Диаметр конечный (мм):", d2);
+                    ui_unit_input(
+                        ui,
+                        (node, "d1"),
+                        "Диаметр начальный (мм):",
+                        d1,
+                        UNITS_LENGTH,
+                        2,
+                    );
+                    ui_unit_input(
+                        ui,
+                        (node, "d2"),
+                        "Диаметр конечный (мм):",
+                        d2,
+                        UNITS_LENGTH,
+                        2,
+                    );
                 }
                 Type(SmoothExpansion { d1, d2, angle }) => {
-                    ui_val_mm(ui, "Диаметр начальный (мм):", d1);
-                    ui_val_mm(ui, "Диаметр конечный (мм):", d2);
-                    ui_val(ui, "Угол (градус):", angle);
+                    ui_unit_input(
+                        ui,
+                        (node, "d1"),
+                        "Диаметр начальный (мм):",
+                        d1,
+                        UNITS_LENGTH,
+                        2,
+                    );
+                    ui_unit_input(
+                        ui,
+                        (node, "d2"),
+                        "Диаметр конечный (мм):",
+                        d2,
+                        UNITS_LENGTH,
+                        2,
+                    );
+                    ui_unit_input(
+                        ui,
+                        (node, "angle"),
+                        "Угол (градус):",
+                        angle,
+                        UNITS_LENGTH,
+                        0,
+                    );
                 }
                 Type(SmoothContraction { d1, d2, angle }) => {
-                    ui_val_mm(ui, "Диаметр начальный (мм):", d1);
-                    ui_val_mm(ui, "Диаметр конечный (мм):", d2);
-                    ui_val(ui, "Угол (градус):", angle);
+                    ui_unit_input(
+                        ui,
+                        (node, "d1"),
+                        "Диаметр начальный (мм):",
+                        d1,
+                        UNITS_LENGTH,
+                        2,
+                    );
+                    ui_unit_input(
+                        ui,
+                        (node, "d2"),
+                        "Диаметр конечный (мм):",
+                        d2,
+                        UNITS_LENGTH,
+                        2,
+                    );
+                    ui_unit_input(
+                        ui,
+                        (node, "angle"),
+                        "Угол (градус):",
+                        angle,
+                        UNITS_LENGTH,
+                        0,
+                    );
                 }
                 Type(HeightDrop { dh }) => {
-                    ui_val(ui, "Δh (м):", dh);
+                    ui_unit_input(ui, (node, "dh"), "Δh (м):", dh, UNITS_LENGTH, 0);
                 }
                 Type(PressureDrop { dp }) => {
-                    ui_val(ui, "ΔP (Па):", dp);
+                    ui_unit_input(ui, (node, "dp"), "ΔP (Па):", dp, UNITS_PRESSURE, 1);
                 }
                 PipeNodeKind::Pump { points } => {
                     ui.label("Рабочие точки:");
                     for (i, (q, h)) in points.iter_mut().enumerate() {
-                        ui.horizontal(|ui| {
-                            ui.label(format!("{}: Q (м³/с):", i + 1));
-                            ui.add(egui::DragValue::new(q).speed(0.00001).max_decimals(6));
-                            ui.label("H (м):");
-                            ui.add(egui::DragValue::new(h).speed(0.01));
+                        ui.group(|ui| {
+                            ui_unit_input(
+                                ui,
+                                (node, "q", i),
+                                format!("Q {}:", i + 1).as_str(),
+                                q,
+                                UNITS_FLOW,
+                                0,
+                            );
+                            ui_unit_input(
+                                ui,
+                                (node, "h", i),
+                                format!("H {}:", i + 1).as_str(),
+                                h,
+                                UNITS_LENGTH,
+                                0,
+                            );
                         });
                     }
                 }
@@ -153,18 +327,25 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                 ui.group(|ui| {
                     ui.label(egui::RichText::new("Результаты расчёта").strong());
 
-                    ui.horizontal(|ui| {
-                        ui.label("Q:");
-                        ui.label(format!("{:.4} м³/с", res.q));
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("P вх:");
-                        ui.label(format!("{:.1} кПа", res.p_in / 1000.0));
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("P вых:");
-                        ui.label(format!("{:.1} кПа", res.p_out / 1000.0));
-                    });
+                    ui_unit_output(ui, (node, "res_q"), "Q:", res.q, UNITS_FLOW, 0, 4);
+                    ui_unit_output(
+                        ui,
+                        (node, "res_pin"),
+                        "P вх:",
+                        res.p_in,
+                        UNITS_PRESSURE,
+                        1,
+                        1,
+                    );
+                    ui_unit_output(
+                        ui,
+                        (node, "res_pout"),
+                        "P вых:",
+                        res.p_out,
+                        UNITS_PRESSURE,
+                        1,
+                        1,
+                    );
                 });
             }
         });
@@ -376,14 +557,14 @@ fn draw_results_table(ui: &mut egui::Ui, pipeline: &Component) {
                         ui.label(format!("{:.4}", comp.state.q));
                     });
                     row.col(|ui| {
-                        ui.label(format!("{:.1}", comp.state.p_in / 1000.0));
+                        ui.label(format!("{:.4}", comp.state.p_in / 1000.0));
                     });
                     row.col(|ui| {
-                        ui.label(format!("{:.1}", comp.state.p_out / 1000.0));
+                        ui.label(format!("{:.4}", comp.state.p_out / 1000.0));
                     });
                     row.col(|ui| {
                         ui.label(format!(
-                            "{:.1}",
+                            "{:.4}",
                             (comp.state.p_in - comp.state.p_out) / 1000.0
                         ));
                     });
