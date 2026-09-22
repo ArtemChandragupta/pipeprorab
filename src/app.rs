@@ -14,14 +14,25 @@ use crate::model::{
     calculate_pipeline,
 };
 
-const UNITS_LENGTH: &[(f64, &str)] = &[(1.0, "м"), (0.01, "см"), (0.001, "мм")];
+const UNITS_LENGTH: &[(f64, &str)] = &[(1.0, "м"), (0.01, "см"), (0.001, "мм"), (0.0254, "дюйм")];
 const UNITS_PRESSURE: &[(f64, &str)] = &[
     (1.0, "Па"),
     (1000.0, "кПа"),
     (100000.0, "бар"),
     (1000000.0, "МПа"),
+    (101325.0, "атм"),
+    (98066.5, "кгс/см²"),
+    (6894.757, "psi"),
+    (9806.65, "м.в.ст."),
+    (133.322, "мм рт.ст."),
 ];
-const UNITS_FLOW: &[(f64, &str)] = &[(1.0, "м³/с"), (0.001, "л/с"), (1.0 / 3600.0, "м³/ч")];
+const UNITS_FLOW: &[(f64, &str)] = &[
+    (1.0, "м³/с"),
+    (0.001, "л/с"),
+    (1.0 / 60000.0, "л/мин"),
+    (1.0 / 3600.0, "м³/ч"),
+    (3.78541 / 60000.0, "GPM"),
+];
 // const UNITS_ANGLE: &[(f64, &str)] = &[(1.0, "°")];
 const UNITS_NONE: &[(f64, &str)] = &[(1.0, "")];
 
@@ -860,19 +871,19 @@ impl eframe::App for HydroApp {
                     }
                 }
 
-                ui.separator();
-
-                if ui.button("Сменить тему").clicked() {
-                    if ui.visuals().dark_mode {
-                        ui.ctx().set_visuals(egui::Visuals::light());
-                    } else {
-                        ui.ctx().set_visuals(egui::Visuals::dark());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Справка").clicked() {
+                        self.doc_widget.is_open = !self.doc_widget.is_open;
                     }
-                }
 
-                if ui.button("Справка").clicked() {
-                    self.doc_widget.is_open = !self.doc_widget.is_open;
-                }
+                    if ui.button("Сменить тему").clicked() {
+                        if ui.visuals().dark_mode {
+                            ui.ctx().set_visuals(egui::Visuals::light());
+                        } else {
+                            ui.ctx().set_visuals(egui::Visuals::dark());
+                        }
+                    }
+                });
             });
         });
 
