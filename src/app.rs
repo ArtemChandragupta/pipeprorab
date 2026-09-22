@@ -804,50 +804,52 @@ impl eframe::App for HydroApp {
                 let json_path = format!("{}.json", self.filename);
                 let xlsx_path = format!("{}.xlsx", self.filename);
 
-                if ui.button("Загрузить JSON").clicked() {
-                    match std::fs::read_to_string(&json_path) {
-                        Ok(s) => match serde_json::from_str(&s) {
-                            Ok(snarl) => {
-                                self.snarl = snarl;
-                                self.load_error_message = None;
-                            }
+                ui.menu_button("📄", |ui| {
+                    if ui.button("Загрузить JSON").clicked() {
+                        match std::fs::read_to_string(&json_path) {
+                            Ok(s) => match serde_json::from_str(&s) {
+                                Ok(snarl) => {
+                                    self.snarl = snarl;
+                                    self.load_error_message = None;
+                                }
+                                Err(err) => {
+                                    self.load_error_message = Some(format!(
+                                        "Файл повреждён или имеет неверный формат:\n{}",
+                                        err
+                                    ));
+                                }
+                            },
                             Err(err) => {
-                                self.load_error_message = Some(format!(
-                                    "Файл повреждён или имеет неверный формат:\n{}",
-                                    err
-                                ));
-                            }
-                        },
-                        Err(err) => {
-                            if err.kind() == std::io::ErrorKind::NotFound {
-                                self.load_error_message = Some(format!(
-                                    "Файл «{}» не найден в корневой папке.",
-                                    json_path
-                                ));
-                            } else {
-                                self.load_error_message =
-                                    Some(format!("Ошибка чтения файла:\n{}", err));
+                                if err.kind() == std::io::ErrorKind::NotFound {
+                                    self.load_error_message = Some(format!(
+                                        "Файл «{}» не найден в корневой папке.",
+                                        json_path
+                                    ));
+                                } else {
+                                    self.load_error_message =
+                                        Some(format!("Ошибка чтения файла:\n{}", err));
+                                }
                             }
                         }
                     }
-                }
 
-                if ui.button("Сохранить JSON").clicked() {
-                    if std::path::Path::new(&json_path).exists() {
-                        self.show_overwrite_dialog = true;
-                    } else {
-                        if let Ok(s) = serde_json::to_string_pretty(&self.snarl) {
-                            let _ = std::fs::write(&json_path, s);
+                    if ui.button("Сохранить JSON").clicked() {
+                        if std::path::Path::new(&json_path).exists() {
+                            self.show_overwrite_dialog = true;
+                        } else {
+                            if let Ok(s) = serde_json::to_string_pretty(&self.snarl) {
+                                let _ = std::fs::write(&json_path, s);
+                            }
                         }
                     }
-                }
 
-                if let CalculationState::Success(res) = &self.calc_state
-                    && ui.button("Экспорт в Excel").clicked()
-                    && let Err(err) = export_to_excel(res, &xlsx_path)
-                {
-                    eprintln!("Ошибка экспорта в Excel: {err}");
-                }
+                    if let CalculationState::Success(res) = &self.calc_state
+                        && ui.button("Экспорт в Excel").clicked()
+                        && let Err(err) = export_to_excel(res, &xlsx_path)
+                    {
+                        eprintln!("Ошибка экспорта в Excel: {err}");
+                    }
+                });
 
                 ui.separator();
 
