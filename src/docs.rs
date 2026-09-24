@@ -78,6 +78,12 @@ impl DocWidget {
                         ui.add_space(4.0);
                         ui.heading("Нижняя панель:");
                         ui.label("Нижняя панель предназначена для вывода результатов расчета и ошибок, связанных с его проведением.");
+
+                        // ui.add(
+                        //     egui::Image::new(egui::include_image!("main.svg"))
+                        //         .max_width(300.0)
+                        // );
+
                     }
                     DocSection::Principles => {
                         ui.heading("Принцип работы");
