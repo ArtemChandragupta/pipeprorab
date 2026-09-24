@@ -173,37 +173,23 @@ impl SnarlViewer<PipeNode> for PipeViewer {
 
             match &mut snarl[node].kind {
                 Type(Pipe { l, d, r }) => {
-                    ui_unit_input(ui, (node, "l"), "Длина (м):", l, UNITS_LENGTH, 0);
-                    ui_unit_input(ui, (node, "d"), "Диаметр (мм):", d, UNITS_LENGTH, 2);
-                    ui_unit_input(ui, (node, "r"), "Шероховатость (мм):", r, UNITS_LENGTH, 2);
+                    ui_unit_input(ui, (node, "l"), "Длина:", l, UNITS_LENGTH, 0);
+                    ui_unit_input(ui, (node, "d"), "Диаметр:", d, UNITS_LENGTH, 2);
+                    ui_unit_input(ui, (node, "r"), "Шероховатость:", r, UNITS_LENGTH, 2);
                 }
                 Type(Fitting { d, z }) => {
-                    ui_unit_input(ui, (node, "d"), "Диаметр (мм):", d, UNITS_LENGTH, 2);
-                    ui_unit_input(ui, (node, "z"), "Сопротивление (ξ):", z, UNITS_NONE, 0);
+                    ui_unit_input(ui, (node, "d"), "Диаметр:", d, UNITS_LENGTH, 2);
+                    ui_unit_input(ui, (node, "z"), "Сопротивление:", z, UNITS_NONE, 0);
                 }
                 Type(ValveKv { kv }) => {
                     ui_unit_input(ui, (node, "kv"), "Kv:", kv, UNITS_NONE, 0);
                 }
                 Type(Orifice { d1, d0 }) => {
-                    ui_unit_input(
-                        ui,
-                        (node, "d1"),
-                        "Диаметр наружный (мм):",
-                        d1,
-                        UNITS_LENGTH,
-                        2,
-                    );
-                    ui_unit_input(
-                        ui,
-                        (node, "d0"),
-                        "Диаметр внутренний (мм):",
-                        d0,
-                        UNITS_LENGTH,
-                        2,
-                    );
+                    ui_unit_input(ui, (node, "d1"), "Диаметр наружный:", d1, UNITS_LENGTH, 2);
+                    ui_unit_input(ui, (node, "d0"), "Диаметр внутренний:", d0, UNITS_LENGTH, 2);
                 }
                 Type(Elbow { d, angle, r_d }) => {
-                    ui_unit_input(ui, (node, "d"), "Диаметр (мм):", d, UNITS_LENGTH, 2);
+                    ui_unit_input(ui, (node, "d"), "Диаметр:", d, UNITS_LENGTH, 2);
                     ui_unit_input(ui, (node, "angle"), "Угол (градус):", angle, UNITS_NONE, 0);
                     ui_unit_input(
                         ui,
@@ -215,58 +201,16 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                     );
                 }
                 Type(SuddenExpansion { d1, d2 }) => {
-                    ui_unit_input(
-                        ui,
-                        (node, "d1"),
-                        "Диаметр начальный (мм):",
-                        d1,
-                        UNITS_LENGTH,
-                        2,
-                    );
-                    ui_unit_input(
-                        ui,
-                        (node, "d2"),
-                        "Диаметр конечный (мм):",
-                        d2,
-                        UNITS_LENGTH,
-                        2,
-                    );
+                    ui_unit_input(ui, (node, "d1"), "Диаметр начальный:", d1, UNITS_LENGTH, 2);
+                    ui_unit_input(ui, (node, "d2"), "Диаметр конечный:", d2, UNITS_LENGTH, 2);
                 }
                 Type(SuddenContraction { d1, d2 }) => {
-                    ui_unit_input(
-                        ui,
-                        (node, "d1"),
-                        "Диаметр начальный (мм):",
-                        d1,
-                        UNITS_LENGTH,
-                        2,
-                    );
-                    ui_unit_input(
-                        ui,
-                        (node, "d2"),
-                        "Диаметр конечный (мм):",
-                        d2,
-                        UNITS_LENGTH,
-                        2,
-                    );
+                    ui_unit_input(ui, (node, "d1"), "Диаметр начальный:", d1, UNITS_LENGTH, 2);
+                    ui_unit_input(ui, (node, "d2"), "Диаметр конечный:", d2, UNITS_LENGTH, 2);
                 }
                 Type(SmoothExpansion { d1, d2, angle }) => {
-                    ui_unit_input(
-                        ui,
-                        (node, "d1"),
-                        "Диаметр начальный (мм):",
-                        d1,
-                        UNITS_LENGTH,
-                        2,
-                    );
-                    ui_unit_input(
-                        ui,
-                        (node, "d2"),
-                        "Диаметр конечный (мм):",
-                        d2,
-                        UNITS_LENGTH,
-                        2,
-                    );
+                    ui_unit_input(ui, (node, "d1"), "Диаметр начальный:", d1, UNITS_LENGTH, 2);
+                    ui_unit_input(ui, (node, "d2"), "Диаметр конечный:", d2, UNITS_LENGTH, 2);
                     ui_unit_input(
                         ui,
                         (node, "angle"),
@@ -277,22 +221,8 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                     );
                 }
                 Type(SmoothContraction { d1, d2, angle }) => {
-                    ui_unit_input(
-                        ui,
-                        (node, "d1"),
-                        "Диаметр начальный (мм):",
-                        d1,
-                        UNITS_LENGTH,
-                        2,
-                    );
-                    ui_unit_input(
-                        ui,
-                        (node, "d2"),
-                        "Диаметр конечный (мм):",
-                        d2,
-                        UNITS_LENGTH,
-                        2,
-                    );
+                    ui_unit_input(ui, (node, "d1"), "Диаметр начальный:", d1, UNITS_LENGTH, 2);
+                    ui_unit_input(ui, (node, "d2"), "Диаметр конечный:", d2, UNITS_LENGTH, 2);
                     ui_unit_input(
                         ui,
                         (node, "angle"),
@@ -303,10 +233,10 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                     );
                 }
                 Type(HeightDrop { dh }) => {
-                    ui_unit_input(ui, (node, "dh"), "Δh (м):", dh, UNITS_LENGTH, 0);
+                    ui_unit_input(ui, (node, "dh"), "Δh:", dh, UNITS_LENGTH, 0);
                 }
                 Type(PressureDrop { dp }) => {
-                    ui_unit_input(ui, (node, "dp"), "ΔP (Па):", dp, UNITS_PRESSURE, 1);
+                    ui_unit_input(ui, (node, "dp"), "ΔP:", dp, UNITS_PRESSURE, 1);
                 }
                 PipeNodeKind::Pump { points } => {
                     ui.label("Рабочие точки:");
