@@ -29,9 +29,7 @@ pub enum PartType {
     Orifice { d1: f64, d0: f64 },
     Elbow { d: f64, angle: f64, r_d: f64 },
     SuddenExpansion { d1: f64, d2: f64 },
-    SuddenContraction { d1: f64, d2: f64 },
     SmoothExpansion { d1: f64, d2: f64, angle: f64 },
-    SmoothContraction { d1: f64, d2: f64, angle: f64 },
 }
 
 // Структура для графического отображения - с неё всё начинается
@@ -156,28 +154,29 @@ fn update_k(comp: &mut Component, q_in: f64) -> f64 {
             (8.0 * zeta * RHO) / (PI.powi(2) * d.powi(4))
         }
         Type(SuddenExpansion { d1, d2 }) => {
-            let n = (*d1 / *d2).powi(2);
-            let zeta = (1.0 - n).powi(2); // Борда-Карно
-            (8.0 * zeta * RHO) / (PI.powi(2) * d1.powi(4))
-        }
-        Type(SuddenContraction { d1, d2 }) => {
-            let n = (*d2 / *d1).powi(2);
-            let zeta = 0.5 * (1.0 - n);
-            (8.0 * zeta * RHO) / (PI.powi(2) * d2.powi(4))
+            if d2 > d1 {
+                let n = (*d1 / *d2).powi(2);
+                let zeta = (1.0 - n).powi(2); // Борда-Карно
+                (8.0 * zeta * RHO) / (PI.powi(2) * d1.powi(4))
+            } else {
+                let n = (*d2 / *d1).powi(2);
+                let zeta = 0.5 * (1.0 - n);
+                (8.0 * zeta * RHO) / (PI.powi(2) * d2.powi(4))
+            }
         }
         Type(SmoothExpansion { d1, d2, angle }) => {
-            let n = (*d1 / *d2).powi(2);
             let alpha_rad = angle.to_radians();
-            let k_diff = 3.2 * (alpha_rad / 2.0).tan().powf(1.25);
-            let zeta = k_diff.min(1.0) * (1.0 - n).powi(2);
-            (8.0 * zeta * RHO) / (PI.powi(2) * d1.powi(4))
-        }
-        Type(SmoothContraction { d1, d2, angle }) => {
-            let n = (*d2 / *d1).powi(2);
-            let alpha_rad = angle.to_radians();
-            let k_conf = (alpha_rad / 2.0).sin().max(0.0).sqrt();
-            let zeta = 0.5 * (1.0 - n) * k_conf.min(1.0);
-            (8.0 * zeta * RHO) / (PI.powi(2) * d2.powi(4))
+            if d2 > d1 {
+                let n = (*d1 / *d2).powi(2);
+                let k_diff = 3.2 * (alpha_rad / 2.0).tan().powf(1.25);
+                let zeta = k_diff.min(1.0) * (1.0 - n).powi(2);
+                (8.0 * zeta * RHO) / (PI.powi(2) * d1.powi(4))
+            } else {
+                let n = (*d2 / *d1).powi(2);
+                let k_conf = (alpha_rad / 2.0).sin().max(0.0).sqrt();
+                let zeta = 0.5 * (1.0 - n) * k_conf.min(1.0);
+                (8.0 * zeta * RHO) / (PI.powi(2) * d2.powi(4))
+            }
         }
         Type(HeightDrop { .. }) | Type(PressureDrop { .. }) => 0.0,
         Series(elems) => elems.iter_mut().map(|e| update_k(e, q)).sum(),
@@ -227,9 +226,7 @@ fn calc_flow_pressure(comp: &mut Component, q_in: f64, p_in: f64) -> f64 {
         | Type(Orifice { .. })
         | Type(Elbow { .. })
         | Type(SuddenExpansion { .. })
-        | Type(SuddenContraction { .. })
-        | Type(SmoothExpansion { .. })
-        | Type(SmoothContraction { .. }) => p_in - k * q_in.powi(2),
+        | Type(SmoothExpansion { .. }) => p_in - k * q_in.powi(2),
         Type(HeightDrop { dh }) => p_in - RHO * G_GRAV * (*dh),
         Type(PressureDrop { dp }) => p_in - (*dp),
         Series(elems) => elems

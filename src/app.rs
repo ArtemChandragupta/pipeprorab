@@ -204,23 +204,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                     ui_unit_input(ui, (node, "d1"), "Диаметр начальный:", d1, UNITS_LENGTH, 2);
                     ui_unit_input(ui, (node, "d2"), "Диаметр конечный:", d2, UNITS_LENGTH, 2);
                 }
-                Type(SuddenContraction { d1, d2 }) => {
-                    ui_unit_input(ui, (node, "d1"), "Диаметр начальный:", d1, UNITS_LENGTH, 2);
-                    ui_unit_input(ui, (node, "d2"), "Диаметр конечный:", d2, UNITS_LENGTH, 2);
-                }
                 Type(SmoothExpansion { d1, d2, angle }) => {
-                    ui_unit_input(ui, (node, "d1"), "Диаметр начальный:", d1, UNITS_LENGTH, 2);
-                    ui_unit_input(ui, (node, "d2"), "Диаметр конечный:", d2, UNITS_LENGTH, 2);
-                    ui_unit_input(
-                        ui,
-                        (node, "angle"),
-                        "Угол (градус):",
-                        angle,
-                        UNITS_LENGTH,
-                        0,
-                    );
-                }
-                Type(SmoothContraction { d1, d2, angle }) => {
                     ui_unit_input(ui, (node, "d1"), "Диаметр начальный:", d1, UNITS_LENGTH, 2);
                     ui_unit_input(ui, (node, "d2"), "Диаметр конечный:", d2, UNITS_LENGTH, 2);
                     ui_unit_input(
@@ -415,31 +399,13 @@ impl SnarlViewer<PipeNode> for PipeViewer {
             );
         });
         ui.menu_button("Изменение сечения", |ui| {
+            add_btn(ui, "Резкое", Type(SuddenExpansion { d1: 0.1, d2: 0.2 }));
             add_btn(
                 ui,
-                "Резкое расширение",
-                Type(SuddenExpansion { d1: 0.1, d2: 0.2 }),
-            );
-            add_btn(
-                ui,
-                "Резкое сужение",
-                Type(SuddenContraction { d1: 0.1, d2: 0.05 }),
-            );
-            add_btn(
-                ui,
-                "Гладкое расширение",
+                "Гладкое",
                 Type(SmoothExpansion {
                     d1: 0.1,
                     d2: 0.2,
-                    angle: 15.0,
-                }),
-            );
-            add_btn(
-                ui,
-                "Гладкое сужение",
-                Type(SmoothContraction {
-                    d1: 0.1,
-                    d2: 0.05,
                     angle: 15.0,
                 }),
             );
