@@ -141,7 +141,7 @@ fn update_k(comp: &mut Component, q_in: f64) -> f64 {
         Type(Fitting { d, z }) => (8.0 * *z * RHO) / (PI.powi(2) * d.powi(4)),
         Type(ValveKv { kv }) => {
             let kv_safe = kv.max(1e-6);
-            1.296e12 / kv_safe.powi(2)
+            (1.296e9 * RHO) / kv_safe.powi(2)
         }
         Type(Orifice { d1, d0 }) => {
             let n = (*d0 / *d1).powi(2);
@@ -150,7 +150,7 @@ fn update_k(comp: &mut Component, q_in: f64) -> f64 {
         }
         Type(Elbow { d, angle, r_d }) => {
             let d_2r = 1.0 / (2.0 * r_d.max(0.001));
-            let zeta = (0.131 + 1.63 * d_2r.powf(3.5)) * (*angle / 90.0);
+            let zeta = (0.131 + 1.85 * d_2r.powf(3.5)) * (*angle / 90.0);
             (8.0 * zeta * RHO) / (PI.powi(2) * d.powi(4))
         }
         Type(SuddenExpansion { d1, d2 }) => {
