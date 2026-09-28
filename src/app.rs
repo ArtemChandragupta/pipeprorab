@@ -33,6 +33,10 @@ const UNITS_FLOW: &[(f64, &str)] = &[
     (1.0 / 3600.0, "м³/ч"),
     (3.78541 / 60000.0, "GPM"),
 ];
+const UNITS_KV: &[(f64, &str)] = &[
+    (1.0, "Kv (м³/ч)"),
+    (0.865, "Cv (US gpm)"), // 1 Cv = 0.865 Kv
+];
 // const UNITS_ANGLE: &[(f64, &str)] = &[(1.0, "°")];
 const UNITS_NONE: &[(f64, &str)] = &[(1.0, "")];
 
@@ -182,7 +186,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                     ui_unit_input(ui, (node, "z"), "Сопротивление:", z, UNITS_NONE, 0);
                 }
                 Type(ValveKv { kv }) => {
-                    ui_unit_input(ui, (node, "kv"), "Kv:", kv, UNITS_NONE, 0);
+                    ui_unit_input(ui, (node, "kv"), "Kv/Cv:", kv, UNITS_KV, 0);
                 }
                 Type(Orifice { d1, d0 }) => {
                     ui_unit_input(ui, (node, "d1"), "Диаметр наружный:", d1, UNITS_LENGTH, 2);
