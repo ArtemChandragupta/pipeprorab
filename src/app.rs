@@ -1,5 +1,4 @@
 use eframe::egui::{self, Ui};
-use egui_extras::{Column, TableBuilder};
 use egui_snarl::{
     InPin, NodeId, OutPin, Snarl,
     ui::{PinInfo, SnarlStyle, SnarlViewer},
@@ -8,11 +7,11 @@ use std::collections::HashMap;
 
 use crate::export::export_to_excel;
 use crate::model::{
-    CalculationResult, Component, PartType, PipeNode, PipeNodeKind, calculate_pipeline,
-    flatten_pipeline,
+    CalculationResult, PartType, PipeNode, PipeNodeKind, calculate_pipeline, flatten_pipeline,
 };
 use crate::ui::docs::*;
 use crate::ui::plots::*;
+use crate::ui::table::*;
 use crate::ui::units::*;
 
 // Поле ввода
@@ -406,60 +405,6 @@ impl SnarlViewer<PipeNode> for PipeViewer {
             add_btn(ui, "Падение давления", Type(PressureDrop { dp: 1000.0 }));
         });
     }
-}
-
-// Отрисовка таблицы
-fn draw_results_table(ui: &mut egui::Ui, pipeline: &Component) {
-    let mut flat_tree = Vec::new();
-    flatten_pipeline(pipeline, 0, &mut flat_tree);
-
-    TableBuilder::new(ui)
-        .striped(true)
-        .resizable(true)
-        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-        .columns(Column::auto(), 5)
-        .header(24.0, |mut header| {
-            header.col(|ui| {
-                ui.strong("Элемент");
-            });
-            header.col(|ui| {
-                ui.strong("Расход (м³/с)");
-            });
-            header.col(|ui| {
-                ui.strong("P вх (кПа)");
-            });
-            header.col(|ui| {
-                ui.strong("P вых (кПа)");
-            });
-            header.col(|ui| {
-                ui.strong("dP (кПа)");
-            });
-        })
-        .body(|mut body| {
-            for (depth, comp) in flat_tree {
-                body.row(22.0, |mut row| {
-                    row.col(|ui| {
-                        let indent = "   ".repeat(depth);
-                        ui.label(format!("{indent}{}", comp.name));
-                    });
-                    row.col(|ui| {
-                        ui.label(format!("{:.4}", comp.state.q));
-                    });
-                    row.col(|ui| {
-                        ui.label(format!("{:.4}", comp.state.p_in / 1000.0));
-                    });
-                    row.col(|ui| {
-                        ui.label(format!("{:.4}", comp.state.p_out / 1000.0));
-                    });
-                    row.col(|ui| {
-                        ui.label(format!(
-                            "{:.4}",
-                            (comp.state.p_in - comp.state.p_out) / 1000.0
-                        ));
-                    });
-                });
-            }
-        });
 }
 
 // Состояние приложения - граф, имя файла и результат(ошибка)
