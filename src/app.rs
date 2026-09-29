@@ -5,40 +5,15 @@ use egui_snarl::{
     InPin, NodeId, OutPin, Snarl,
     ui::{PinInfo, SnarlStyle, SnarlViewer},
 };
-use rust_xlsxwriter::{Color, Format, Workbook, XlsxError};
 use std::collections::HashMap;
 
-use crate::docs::DocWidget;
+use crate::export::export_to_excel;
 use crate::model::{
-    CalculationResult, Component, ElementKind, G_GRAV, PartType, PipeNode, PipeNodeKind, RHO,
-    calculate_pipeline,
+    CalculationResult, Component, G_GRAV, PartType, PipeNode, PipeNodeKind, RHO,
+    calculate_pipeline, flatten_pipeline,
 };
-
-const UNITS_LENGTH: &[(f64, &str)] = &[(1.0, "м"), (0.01, "см"), (0.001, "мм"), (0.0254, "дюйм")];
-const UNITS_PRESSURE: &[(f64, &str)] = &[
-    (1.0, "Па"),
-    (1000.0, "кПа"),
-    (100000.0, "бар"),
-    (1000000.0, "МПа"),
-    (101325.0, "атм"),
-    (98066.5, "кгс/см²"),
-    (6894.757, "psi"),
-    (9806.65, "м.в.ст."),
-    (133.322, "мм рт.ст."),
-];
-const UNITS_FLOW: &[(f64, &str)] = &[
-    (1.0, "м³/с"),
-    (0.001, "л/с"),
-    (1.0 / 60000.0, "л/мин"),
-    (1.0 / 3600.0, "м³/ч"),
-    (3.78541 / 60000.0, "GPM"),
-];
-const UNITS_KV: &[(f64, &str)] = &[
-    (1.0, "Kv (м³/ч)"),
-    (0.865, "Cv (US gpm)"), // 1 Cv = 0.865 Kv
-];
-// const UNITS_ANGLE: &[(f64, &str)] = &[(1.0, "°")];
-const UNITS_NONE: &[(f64, &str)] = &[(1.0, "")];
+use crate::ui::docs::*;
+use crate::ui::units::*;
 
 // Поле ввода
 fn ui_unit_input(
@@ -355,73 +330,6 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         use PartType::*;
         use PipeNodeKind::*;
 
-        fn show_tooltip(ui: &mut egui::Ui, label: &str) {
-            match label {
-                "Насос" => {
-                    ui.label("Насос по трём точкам, стартовая точка системы");
-                }
-
-                "Труба" => {
-                    ui.label("Труба круглого сечения. Учитывает режим течения");
-                    ui.add(
-                        egui::Image::new(egui::include_image!("assets/Tube.svg")).max_height(120.0),
-                    );
-                }
-
-                "Местное сопротивление" => {
-                    ui.label("Общее местное сопротивление");
-                }
-
-                "Диафрагма" => {
-                    ui.label("Диафрагма по двум диаметрам");
-                    ui.add(
-                        egui::Image::new(egui::include_image!("assets/Orifice.svg"))
-                            .max_height(120.0),
-                    );
-                }
-
-                "Резкое" => {
-                    ui.label(
-                        "Резкое изменение диаметра. Поддерживается как расширение, так и сужение",
-                    );
-                    ui.add(
-                        egui::Image::new(egui::include_image!("assets/Sudden.svg"))
-                            .max_height(120.0),
-                    );
-                }
-
-                "Гладкое" => {
-                    ui.label(
-                        "Гладкое изменение диаметра. Поддерживается как расширение, так и сужение",
-                    );
-                    ui.add(
-                        egui::Image::new(egui::include_image!("assets/Smooth.svg"))
-                            .max_height(120.0),
-                    );
-                }
-
-                "Поворотное колено" => {
-                    ui.label("Поворот трубы без изменения диаметра");
-                    ui.add(
-                        egui::Image::new(egui::include_image!("assets/Elbow.svg"))
-                            .max_height(120.0),
-                    );
-                }
-
-                "Перепад высоты" => {
-                    ui.label("Перепад высоты. Не учитывает длинну труб, так что требует учитывать их отдельным модулем. \nПоложительное направление - вниз");
-                }
-
-                "Падение давления" => {
-                    ui.label("Простое падение давления. Применяется для моделирования компонентов, перепад давления на которых известен экспериментально, или для выхода из трубопровода с давлением, отличным от входного.");
-                }
-
-                _ => {
-                    ui.label(label);
-                }
-            }
-        }
-
         let mut add_btn = |ui: &mut egui::Ui, label: &str, kind: PipeNodeKind| {
             let response = ui.button(label);
 
@@ -461,6 +369,14 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                 "Местное сопротивление",
                 Type(Fitting { d: 0.1, z: 1.0 }),
             );
+            add_btn(ui, "Клапан типа \"Рей\"", Type(Fitting { d: 0.1, z: 3.4 }));
+            add_btn(ui, "Клапан штампованный", Type(Fitting { d: 0.1, z: 7.8 }));
+            add_btn(ui, "Задвижка клинкетная", Type(Fitting { d: 0.1, z: 0.2 }));
+            add_btn(
+                ui,
+                "Задвижка с рычажным затвором",
+                Type(Fitting { d: 0.1, z: 0.75 }),
+            );
             add_btn(ui, "Клапан по Kv", Type(ValveKv { kv: 10.0 }));
             add_btn(ui, "Диафрагма", Type(Orifice { d1: 0.1, d0: 0.01 }));
             add_btn(
@@ -492,16 +408,7 @@ impl SnarlViewer<PipeNode> for PipeViewer {
     }
 }
 
-// Отрисовка таблицы и вспомогательная функция
-fn flatten_pipeline<'a>(comp: &'a Component, depth: usize, out: &mut Vec<(usize, &'a Component)>) {
-    out.push((depth, comp));
-    if let ElementKind::Series(elems) | ElementKind::Parallel(elems) = &comp.kind {
-        for sub in elems {
-            flatten_pipeline(sub, depth + 1, out);
-        }
-    }
-}
-
+// Отрисовка таблицы
 fn draw_results_table(ui: &mut egui::Ui, pipeline: &Component) {
     let mut flat_tree = Vec::new();
     flatten_pipeline(pipeline, 0, &mut flat_tree);
@@ -649,48 +556,6 @@ pub fn draw_hq_plot(ui: &mut egui::Ui, res: &CalculationResult, snarl: &Snarl<Pi
                 .color(egui::Color32::GREEN),
         );
     });
-}
-
-fn export_to_excel(res: &CalculationResult, filename: &str) -> Result<(), XlsxError> {
-    let mut workbook = Workbook::new();
-    let worksheet = workbook.add_worksheet();
-    worksheet.set_name("Результаты")?;
-
-    let header_format = Format::new().set_bold().set_background_color(Color::Silver);
-
-    let headers = [
-        "Элемент",
-        // "Тип",
-        "Расход (м³/с)",
-        "P вх (кПа)",
-        "P вых (кПа)",
-        "dP (кПа)",
-    ];
-
-    for (col, &header) in headers.iter().enumerate() {
-        worksheet.write_string_with_format(0, col as u16, header, &header_format)?;
-    }
-
-    let mut flat_tree = Vec::new();
-    flatten_pipeline(&res.pipeline, 0, &mut flat_tree);
-
-    for (row, (depth, comp)) in flat_tree.iter().enumerate() {
-        let row_idx = (row + 1) as u32;
-
-        let indent = "    ".repeat(*depth);
-        let name_with_indent = format!("{}{}", indent, comp.name);
-
-        worksheet.write_string(row_idx, 0, name_with_indent)?;
-        worksheet.write_number(row_idx, 1, comp.state.q)?;
-        worksheet.write_number(row_idx, 2, comp.state.p_in / 1000.0)?;
-        worksheet.write_number(row_idx, 3, comp.state.p_out / 1000.0)?;
-
-        let dp = (comp.state.p_in - comp.state.p_out) / 1000.0;
-        worksheet.write_number(row_idx, 4, dp)?;
-    }
-
-    workbook.save(filename)?;
-    Ok(())
 }
 
 // Состояние приложения - граф, имя файла и результат(ошибка)

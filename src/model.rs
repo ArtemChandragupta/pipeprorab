@@ -210,6 +210,20 @@ fn update_k(comp: &mut Component, q_in: f64) -> f64 {
     k
 }
 
+// вспомогательная функция для уплощения трубопровода
+pub fn flatten_pipeline<'a>(
+    comp: &'a Component,
+    depth: usize,
+    out: &mut Vec<(usize, &'a Component)>,
+) {
+    out.push((depth, comp));
+    if let ElementKind::Series(elems) | ElementKind::Parallel(elems) = &comp.kind {
+        for sub in elems {
+            flatten_pipeline(sub, depth + 1, out);
+        }
+    }
+}
+
 // Финальный расчет падения давления на элементе
 fn calc_flow_pressure(comp: &mut Component, q_in: f64, p_in: f64) -> f64 {
     use ElementKind::*;

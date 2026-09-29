@@ -7,7 +7,7 @@ pub struct DocWidget {
 
 // Секции докумментации
 #[derive(PartialEq, Eq, Default)]
-pub enum DocSection {
+enum DocSection {
     #[default]
     Overview,
     Principles,
@@ -98,5 +98,54 @@ impl DocWidget {
                     }
                 });
         });
+    }
+}
+
+pub fn show_tooltip(ui: &mut egui::Ui, label: &str) {
+    match label {
+        "Насос" => {
+            ui.label("Насос по трём точкам, стартовая точка системы");
+        }
+
+        "Труба" => {
+            ui.label("Труба круглого сечения. Учитывает режим течения");
+            ui.add(egui::Image::new(egui::include_image!("assets/Tube.svg")).max_height(120.0));
+        }
+
+        "Местное сопротивление" => {
+            ui.label("Общее местное сопротивление");
+        }
+
+        "Диафрагма" => {
+            ui.label("Диафрагма по двум диаметрам");
+            ui.add(egui::Image::new(egui::include_image!("assets/Orifice.svg")).max_height(120.0));
+        }
+
+        "Резкое" => {
+            ui.label("Резкое изменение диаметра. Поддерживается как расширение, так и сужение");
+            ui.add(egui::Image::new(egui::include_image!("assets/Sudden.svg")).max_height(120.0));
+        }
+
+        "Гладкое" => {
+            ui.label("Гладкое изменение диаметра. Поддерживается как расширение, так и сужение");
+            ui.add(egui::Image::new(egui::include_image!("assets/Smooth.svg")).max_height(120.0));
+        }
+
+        "Поворотное колено" => {
+            ui.label("Поворот трубы без изменения диаметра");
+            ui.add(egui::Image::new(egui::include_image!("assets/Elbow.svg")).max_height(120.0));
+        }
+
+        "Перепад высоты" => {
+            ui.label("Перепад высоты. Не учитывает длинну труб, так что требует учитывать их отдельным модулем. \nПоложительное направление - вниз");
+        }
+
+        "Падение давления" => {
+            ui.label("Простое падение давления. Применяется для моделирования компонентов, перепад давления на которых известен экспериментально, или для выхода из трубопровода с давлением, отличным от входного.");
+        }
+
+        _ => {
+            ui.label(label);
+        }
     }
 }
