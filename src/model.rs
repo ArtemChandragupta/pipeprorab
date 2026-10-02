@@ -1,10 +1,7 @@
 use egui_snarl::{NodeId, Snarl};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::f64::consts::PI;
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    f64,
-};
 
 pub const G_GRAV: f64 = 9.81;
 pub const RHO: f64 = 1000.0;
