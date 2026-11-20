@@ -34,7 +34,12 @@ pub enum PartType {
 #[serde(untagged)]
 pub enum PipeNodeKind {
     Type(PartType),
-    Pump { points: [(f64, f64); 3] },
+    Pump {
+        points: [(f64, f64); 3],
+    },
+    PressureDifference {
+        dp: f64,
+    },
 }
 
 // --- СТРУКТУРЫ ДЛЯ РАСЧЕТА ---
@@ -80,6 +85,15 @@ struct Pump {
     c: f64,
 }
 impl Pump {
+    /// Источник с постоянным напором (аналог насоса с горизонтальной характеристикой).
+    fn constant_head(head: f64) -> Self {
+        Self {
+            a: 0.0,
+            b: 0.0,
+            c: head,
+        }
+    }
+
     pub fn from_points(p: &[(f64, f64); 3]) -> Result<Self, &'static str> {
         let ((q1, h1), (q2, h2), (q3, h3)) = (p[0], p[1], p[2]);
         let denom = (q1 - q2) * (q1 - q3) * (q2 - q3);
@@ -299,29 +313,32 @@ fn solve_operating_point(
 }
 
 // --- КОНВЕРТАЦИЯ ГРАФА В МОДЕЛЬ (Написано Gemini) ---
+// Источник, задающий граничное условие на входе трубопровода
+enum SourceModel {
+    Pump([(f64, f64); 3]),
+    PressureDifference(f64),
+}
+
 struct ModelData {
-    pump_points: [(f64, f64); 3],
+    source: SourceModel,
     pipeline: Component,
 }
 
 fn build_model(snarl: &Snarl<PipeNode>) -> Result<ModelData, &'static str> {
-    let (pump_node, pump_points) = snarl
-        .node_ids()
-        .find_map(|(id, n)| {
-            if let PipeNodeKind::Pump { points } = &n.kind {
-                Some((
-                    id,
-                    [
-                        (points[0].0, points[0].1),
-                        (points[1].0, points[1].1),
-                        (points[2].0, points[2].1),
-                    ],
-                ))
-            } else {
-                None
-            }
-        })
-        .ok_or("Насос не найден в графе!")?;
+    let mut sources = snarl.node_ids().filter_map(|(id, n)| match &n.kind {
+        PipeNodeKind::Pump { points } => Some((id, SourceModel::Pump(*points))),
+        PipeNodeKind::PressureDifference { dp } => Some((id, SourceModel::PressureDifference(*dp))),
+        PipeNodeKind::Type(_) => None,
+    });
+
+    let (source_node, source) = sources
+        .next()
+        .ok_or("В графе не найден источник: насос или известный перепад давления!")?;
+    if sources.next().is_some() {
+        return Err(
+            "В графе должен быть только один источник: насос или известный перепад давления.",
+        );
+    }
 
     let mut adj: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
     for (out_pin, in_pin) in snarl.wires() {
@@ -384,7 +401,7 @@ fn build_model(snarl: &Snarl<PipeNode>) -> Result<ModelData, &'static str> {
             let node = &snarl[curr];
             let elem_kind = match &node.kind {
                 PipeNodeKind::Type(element) => Some(ElementKind::Type(element.clone())),
-                PipeNodeKind::Pump { .. } => None,
+                PipeNodeKind::Pump { .. } | PipeNodeKind::PressureDifference { .. } => None,
             };
 
             if let Some(kind) = elem_kind {
@@ -424,9 +441,9 @@ fn build_model(snarl: &Snarl<PipeNode>) -> Result<ModelData, &'static str> {
         elems
     }
 
-    let initial = process_chain(pump_node, None, snarl, &adj);
+    let initial = process_chain(source_node, None, snarl, &adj);
     Ok(ModelData {
-        pump_points,
+        source,
         pipeline: Component::new("Магистраль", ElementKind::Series(initial)),
     })
 }
@@ -444,7 +461,13 @@ pub struct CalculationResult {
 
 pub fn calculate_pipeline(snarl: &Snarl<PipeNode>) -> Result<CalculationResult, String> {
     let model = build_model(snarl).map_err(|e| format!("Ошибка сборки модели: {e}"))?;
-    let pump = Pump::from_points(&model.pump_points).map_err(|e| format!("Ошибка насоса: {e}"))?;
+    let pump = match model.source {
+        SourceModel::Pump(points) => {
+            Pump::from_points(&points).map_err(|e| format!("Ошибка насоса: {e}"))?
+        }
+        // Известный перепад давления задаёт постоянный напор источника.
+        SourceModel::PressureDifference(dp) => Pump::constant_head(dp / (RHO * G_GRAV)),
+    };
     let mut pipeline = model.pipeline;
 
     // Итерационный поиск рабочей точки

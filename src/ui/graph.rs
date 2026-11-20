@@ -192,6 +192,14 @@ impl SnarlViewer<PipeNode> for PipeViewer {
                 Type(PressureDrop { dp }) => {
                     ui_unit_input(ui, (node, "dp"), "ΔP:", dp, UNITS_PRESSURE, 1);
                 }
+                PipeNodeKind::PressureDifference { dp } => {
+                    ui.label("Граничное условие:");
+                    ui_unit_input(ui, (node, "dp"), "ΔP:", dp, UNITS_PRESSURE, 1);
+                    ui.label(format!(
+                        "Напор источника: {:.2} м",
+                        *dp / (crate::model::RHO * crate::model::G_GRAV)
+                    ));
+                }
                 PipeNodeKind::Pump { points } => {
                     ui.label("Рабочие точки:");
                     for (i, (q, h)) in points.iter_mut().enumerate() {
@@ -246,10 +254,10 @@ impl SnarlViewer<PipeNode> for PipeViewer {
         });
     }
 
-    // 1 входной пин для каждого блока кроме насоса
+    // 1 входной пин для каждого блока кроме источников (насос / перепад давления)
     fn inputs(&mut self, node: &PipeNode) -> usize {
         match &node.kind {
-            PipeNodeKind::Pump { .. } => 0,
+            PipeNodeKind::Pump { .. } | PipeNodeKind::PressureDifference { .. } => 0,
             _ => 1,
         }
     }
@@ -327,7 +335,8 @@ impl SnarlViewer<PipeNode> for PipeViewer {
             response.clone().on_hover_ui(|ui| show_tooltip(ui, label));
 
             if response.clicked() {
-                let name = if label == "Насос" {
+                let is_source = matches!(label, "Насос" | "Известный перепад давления");
+                let name = if is_source {
                     label.to_owned()
                 } else {
                     format!("{label} {idx}")
@@ -344,6 +353,11 @@ impl SnarlViewer<PipeNode> for PipeViewer {
             Pump {
                 points: [(0.01, 20.0), (0.02, 15.0), (0.03, 5.0)],
             },
+        );
+        add_btn(
+            ui,
+            "Известный перепад давления",
+            PressureDifference { dp: 100000.0 },
         );
         add_btn(
             ui,

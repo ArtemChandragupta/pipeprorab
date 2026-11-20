@@ -45,46 +45,56 @@ pub fn draw_hq_plot(ui: &mut egui::Ui, res: &CalculationResult, snarl: &Snarl<Pi
             Line::new("Кривая сети", PlotPoints::from(net_points)).color(egui::Color32::BLUE),
         );
 
-        // 2. Построение характеристики насоса по трем точкам
+        // 2. Построение характеристики источника
         for node in snarl.nodes() {
-            if let PipeNodeKind::Pump { points } = &node.kind {
-                let mut pts: Vec<[f64; 2]> = points.iter().map(|&(q, h)| [q, h]).collect();
+            match &node.kind {
+                PipeNodeKind::Pump { points } => {
+                    let mut pts: Vec<[f64; 2]> = points.iter().map(|&(q, h)| [q, h]).collect();
 
-                pts.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap());
+                    pts.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap());
 
-                if pts.len() >= 3 {
-                    let p0 = pts[0];
-                    let p1 = pts[1];
-                    let p2 = pts[2];
+                    if pts.len() >= 3 {
+                        let p0 = pts[0];
+                        let p1 = pts[1];
+                        let p2 = pts[2];
 
-                    let min_q = 0.0;
-                    let max_q = pts.last().unwrap()[0] * 1.15;
+                        let min_q = 0.0;
+                        let max_q = pts.last().unwrap()[0] * 1.15;
 
-                    let mut dense_pump_pts = Vec::with_capacity(steps + 1);
-                    for i in 0..=steps {
-                        let q = min_q + (max_q - min_q) * (i as f64) / (steps as f64);
-                        let h = interpolate_quadratic(p0, p1, p2, q);
-                        dense_pump_pts.push([q, h]);
+                        let mut dense_pump_pts = Vec::with_capacity(steps + 1);
+                        for i in 0..=steps {
+                            let q = min_q + (max_q - min_q) * (i as f64) / (steps as f64);
+                            let h = interpolate_quadratic(p0, p1, p2, q);
+                            dense_pump_pts.push([q, h]);
+                        }
+
+                        // Линия характеристики насоса
+                        plot_ui.line(
+                            Line::new("Кривая насоса", PlotPoints::from(dense_pump_pts))
+                                .color(egui::Color32::RED),
+                        );
+
+                        // Опорные точки насоса
+                        plot_ui.points(
+                            Points::new("Точки насоса", PlotPoints::from(pts))
+                                .radius(3.5)
+                                .color(egui::Color32::RED),
+                        );
+                    } else {
+                        plot_ui.line(
+                            Line::new("Насос (ломаная)", PlotPoints::from(pts))
+                                .color(egui::Color32::RED),
+                        );
                     }
-
-                    // Линия характеристики насоса
+                }
+                PipeNodeKind::PressureDifference { dp } => {
+                    let h = dp / (RHO * G_GRAV);
                     plot_ui.line(
-                        Line::new("Кривая насоса", PlotPoints::from(dense_pump_pts))
-                            .color(egui::Color32::RED),
-                    );
-
-                    // Опорные точки насоса
-                    plot_ui.points(
-                        Points::new("Точки насоса", PlotPoints::from(pts))
-                            .radius(3.5)
-                            .color(egui::Color32::RED),
-                    );
-                } else {
-                    plot_ui.line(
-                        Line::new("Насос (ломаная)", PlotPoints::from(pts))
-                            .color(egui::Color32::RED),
+                        Line::new("Источник ΔP", PlotPoints::from(vec![[0.0, h], [q_max, h]]))
+                            .color(egui::Color32::from_rgb(255, 140, 0)),
                     );
                 }
+                _ => {}
             }
         }
 
